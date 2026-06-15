@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html class="light" lang="en" style="width: 100%; height: 100%;">
+<head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>U&ME | B2B CURATION SYSTEM (PREVIEW)</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@100..900&amp;display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+    <script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "tertiary-container": "#cca730",
+                    "on-tertiary-fixed": "#241a00",
+                    "on-error": "#ffffff",
+                    "secondary-container": "#e5dfd4",
+                    "outline-variant": "#cdc5bb",
+                    "on-secondary-fixed-variant": "#49473e",
+                    "surface-variant": "#e2e3e1",
+                    "on-secondary": "#ffffff",
+                    "on-tertiary-fixed-variant": "#574500",
+                    "surface-container-high": "#e8e8e6",
+                    "primary-container": "#7a7369",
+                    "surface-bright": "#f9f9f7",
+                    "on-error-container": "#93000a",
+                    "background": "#f9f9f7",
+                    "on-surface-variant": "#4b463f",
+                    "inverse-primary": "#cec5b9",
+                    "tertiary-fixed": "#ffe088",
+                    "inverse-on-surface": "#f1f1ef",
+                    "secondary-fixed": "#e7e2d7",
+                    "on-background": "#1a1c1b",
+                    "inverse-surface": "#2f3130",
+                    "tertiary-fixed-dim": "#e9c349",
+                    "error-container": "#ffdad6",
+                    "on-tertiary": "#ffffff",
+                    "surface-container-highest": "#e2e3e1",
+                    "on-tertiary-container": "#4f3d00",
+                    "secondary": "#615e55",
+                    "secondary-fixed-dim": "#cbc6bb",
+                    "on-primary-fixed-variant": "#4c463d",
+                    "on-primary": "#ffffff",
+                    "surface": "#f9f9f7",
+                    "tertiary": "#735c00",
+                    "surface-tint": "#645d54",
+                    "error": "#ba1a1a",
+                    "surface-container-lowest": "#ffffff",
+                    "primary-fixed": "#ebe1d5",
+                    "on-primary-container": "#fffbfa",
+                    "surface-container-low": "#f4f4f2",
+                    "primary-fixed-dim": "#cec5b9",
+                    "on-secondary-container": "#656259",
+                    "surface-dim": "#dadad8",
+                    "primary": "#615b51",
+                    "on-primary-fixed": "#1f1b14",
+                    "outline": "#7c766e",
+                    "on-surface": "#1a1c1b",
+                    "surface-container": "#eeeeec",
+                    "on-secondary-fixed": "#1d1c15"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "spacing": {
+                    "stack-md": "24px",
+                    "margin-mobile": "16px",
+                    "margin-desktop": "40px",
+                    "gutter": "24px",
+                    "stack-sm": "8px",
+                    "stack-lg": "48px",
+                    "container-max": "1280px"
+            },
+            "fontFamily": {
+                    "display-lg": ["Noto Sans KR"],
+                    "body-lg": ["Noto Sans KR"],
+                    "headline-sm": ["Noto Sans KR"],
+                    "body-md": ["Noto Sans KR"],
+                    "label-caps": ["Noto Sans KR"],
+                    "headline-md-mobile": ["Noto Sans KR"],
+                    "headline-md": ["Noto Sans KR"]
+            },
+            "fontSize": {
+                    "display-lg": ["48px", {"lineHeight": "1.2", "letterSpacing": "0.1em", "fontWeight": "700"}],
+                    "body-lg": ["16px", {"lineHeight": "1.6", "letterSpacing": "0.02em", "fontWeight": "400"}],
+                    "headline-sm": ["18px", {"lineHeight": "1.4", "letterSpacing": "0.05em", "fontWeight": "500"}],
+                    "body-md": ["14px", {"lineHeight": "1.5", "letterSpacing": "0.02em", "fontWeight": "400"}],
+                    "label-caps": ["12px", {"lineHeight": "1", "letterSpacing": "0.15em", "fontWeight": "500"}],
+                    "headline-md-mobile": ["20px", {"lineHeight": "1.3", "letterSpacing": "0.05em", "fontWeight": "500"}],
+                    "headline-md": ["24px", {"lineHeight": "1.4", "letterSpacing": "0.05em", "fontWeight": "500"}]
+            }
+          },
+        },
+      }
+    </script>
+    <style>
+        .product-card-hover:hover .overlay-action {
+            opacity: 1;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        body {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        /* Custom scrollbar reset */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md text-body-md overflow-x-hidden m-0 p-0">
+
+<!-- Top Navigation Bar -->
+<nav class="w-full top-0 border-b border-outline-variant dark:border-outline bg-background z-50 sticky">
+    <div class="flex justify-between items-center px-margin-desktop py-stack-md w-full max-w-[1400px] mx-auto">
+        <div class="flex flex-col">
+            <span class="font-display-lg text-display-lg text-on-background tracking-widest leading-none">U&ME</span>
+            <span class="font-label-caps text-label-caps text-secondary tracking-[0.2em] mt-1">B2B CURATION SYSTEM</span>
+        </div>
+        <div class="hidden md:flex items-center gap-10">
+            <a class="font-body-md text-body-md text-primary dark:text-primary-fixed border-b-2 border-primary pb-1 cursor-pointer active:opacity-70 hover:text-primary transition-colors duration-200">New Arrivals</a>
+            <a class="font-body-md text-body-md text-on-surface-variant dark:text-on-surface-variant cursor-pointer active:opacity-70 hover:text-primary transition-colors duration-200">Order Status</a>
+        </div>
+        <div class="flex items-center gap-6">
+            <div class="relative flex items-center border-b border-outline py-1">
+                <span class="material-symbols-outlined text-outline text-[20px]">search</span>
+                <input class="bg-transparent border-none focus:ring-0 text-body-md placeholder:text-outline-variant w-48 py-0" placeholder="Search Wholesale" type="text">
+            </div>
+            <div class="flex items-center gap-4">
+                <span class="material-symbols-outlined cursor-pointer text-on-surface hover:text-primary transition-all">shopping_cart</span>
+                <span class="material-symbols-outlined cursor-pointer text-on-surface hover:text-primary transition-all">person</span>
+            </div>
+        </div>
+    </div>
+</nav>
+
+<!-- Category Filter Pills -->
+<section class="w-full max-w-[1400px] mx-auto px-margin-desktop pt-stack-lg">
+    <div class="flex items-center gap-3 overflow-x-auto no-scrollbar py-2">
+        <button class="px-8 py-2 rounded-full bg-primary text-on-primary font-label-caps text-label-caps tracking-widest transition-all duration-300">ALL</button>
+        <button class="px-8 py-2 rounded-full border border-secondary text-secondary font-label-caps text-label-caps tracking-widest hover:bg-secondary-container transition-all duration-300">NEW</button>
+        <button class="px-8 py-2 rounded-full border border-secondary text-secondary font-label-caps text-label-caps tracking-widest hover:bg-secondary-container transition-all duration-300">TOP</button>
+        <button class="px-8 py-2 rounded-full border border-secondary text-secondary font-label-caps text-label-caps tracking-widest hover:bg-secondary-container transition-all duration-300">OUTER</button>
+        <button class="px-8 py-2 rounded-full border border-secondary text-secondary font-label-caps text-label-caps tracking-widest hover:bg-secondary-container transition-all duration-300">BOTTOM</button>
+        <button class="px-8 py-2 rounded-full border border-secondary text-secondary font-label-caps text-label-caps tracking-widest hover:bg-secondary-container transition-all duration-300">ONE-PIECE</button>
+    </div>
+</section>
+
+<!-- Main Content: Product Grid -->
+<main class="w-full max-w-[1400px] mx-auto px-margin-desktop py-stack-lg">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-gutter gap-y-stack-lg">
+        <!-- Product Item 1 -->
+        <div class="group flex flex-col space-y-4">
+            <div class="relative aspect-[3/4] overflow-hidden bg-surface-container-low cursor-pointer rounded-[6px]">
+                <img class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCMYDA1HWtuPwLncGFjhzPNNPREqiE66z2tK1nnVllOAv4PVgqXBqlyUmvsj-66RBhM2y3KoSkZRYev3Mf6S6dBdoaZwBRA7XS4f44SEJq8tFagi_60POvC9p9rMQTiCXPsDGiwEUVH29nHtsc5x4xClL2ufCAi67Lhswuctgps9Xlui2WS_zwQZxMSzZTVn8WAXFSmSnbLZpk3oG03pS8C4V4BiewD_puMk49ohXS_EDo1faSrMYoEgLOi4pxpNpUijqawFFynu7U" alt="Signature Oversized Wool Coat">
+                <!-- Badges -->
+                <div class="absolute top-4 left-4 flex flex-col gap-2">
+                    <span class="bg-primary text-white text-[10px] px-2 py-0.5 font-medium tracking-tighter">오더만</span>
+                    <span class="bg-secondary text-white text-[10px] px-2 py-0.5 font-medium tracking-tighter">공동구매</span>
+                </div>
+                <div class="absolute top-4 right-4">
+                    <span class="material-symbols-outlined text-tertiary-container text-[20px]" style="font-variation-settings: &quot;FILL&quot; 1;">workspace_premium</span>
+                </div>
+                <!-- Quick Add Overlay (Implicit action) -->
+                <div class="absolute inset-0 bg-black/5 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
+                    <button class="w-full bg-white/90 backdrop-blur-sm py-3 text-label-caps text-on-surface font-medium hover:bg-primary hover:text-on-primary transition-colors">QUICK VIEW</button>
+                </div>
+            </div>
+            <div class="text-center">
+                <p class="font-body-md text-on-surface font-medium">Signature Oversized Wool Coat</p>
+                <p class="font-label-caps text-secondary mt-1 tracking-widest">₩ 189,000</p>
+            </div>
+        </div>
+
+        <!-- Product Item 2 -->
+        <div class="group flex flex-col space-y-4">
+            <div class="relative aspect-[3/4] overflow-hidden bg-surface-container-low cursor-pointer rounded-[6px]">
+                <img class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" src="https://lh3.googleusercontent.com/aida-public/AB6AXuApYkQPFGcGT0fDF7HxupVY1FpE9T3rVkHzqAWNEXGJ7vBBEUOhJ_TnYbT5NqAL1VhSmXNfPP-tzFXn0USD_VKVRQ6o3vKb6ZBKUTUfNrMtjMkuB05AGhORuwm3zELnGBWzXOhJSiDsFT8Y9Y4QIcb-PShnL7RdMZw9hkj-_-RMYbWOPQHvXTbyLhvhucTbkLCpU0e7RSqk7P0cgPaYqbITw9WMStWjCwLemUegBJlsO_zETqUsHqbPt800jR8voDrwTHmwq3Q4An4" alt="Fine Knit Midi Dress">
+                <div class="absolute top-4 left-4 flex flex-col gap-2">
+                    <span class="bg-primary text-white text-[10px] px-2 py-0.5 font-medium tracking-tighter">오더만</span>
+                </div>
+            </div>
+            <div class="text-center">
+                <p class="font-body-md text-on-surface font-medium">Fine Knit Midi Dress</p>
+                <p class="font-label-caps text-secondary mt-1 tracking-widest">₩ 74,000</p>
+            </div>
+        </div>
+
+        <!-- Product Item 3 -->
+        <div class="group flex flex-col space-y-4">
+            <div class="relative aspect-[3/4] overflow-hidden bg-surface-container-low cursor-pointer rounded-[6px]">
+                <img class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDHQqA2J0MnM_8OjwZTRTxtE6yqFNfWF4MiOvyW5nEvrScRYe7vnbYQ_eqzuubLxlUq4Na-TJ3zZs-K29HsyscDKINNvm8I9_JgP7vQdyxrn0nBoEBNh02HcEEYf9GXEX5qBjoZ7_qWjZMzdl1HiXK82jar5KaX4SdoW7ktuai6dNB-48Fq5RFGWqw3U3gowrpEXSWgfUSjBfkIVtZKyQnbnZFtWjOdMmqPi33GZS0vooTRK4KGP58B8DtTkOFHSTXNY14J9AX5b5Q" alt="Wide Leg Tailored Trousers">
+                <div class="absolute top-4 right-4">
+                    <span class="material-symbols-outlined text-tertiary-container text-[20px]" style="font-variation-settings: &quot;FILL&quot; 1;">workspace_premium</span>
+                </div>
+            </div>
+            <div class="text-center">
+                <p class="font-body-md text-on-surface font-medium">Wide Leg Tailored Trousers</p>
+                <p class="font-label-caps text-secondary mt-1 tracking-widest">₩ 62,000</p>
+            </div>
+        </div>
+
+        <!-- Product Item 4 -->
+        <div class="group flex flex-col space-y-4">
+            <div class="relative aspect-[3/4] overflow-hidden bg-surface-container-low cursor-pointer rounded-[6px]">
+                <img class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAQyYGlotDBe30DWhD9PPZgXYpRyXeXn0PUqaxkcdXi2YzqhriZuJC1bj7skbtYpSjImrq6pp_msTkPcRRPic8xcJcqWny7SNt2XSG8u4NtYLfo6IrdA0nmJIRmsYO1LAIKYWpFhFbr2RZbbTtu_lYwEQxx0r8kQW5qdzq4gBBD1Ah1rkV_8PCzYcO6Us_x5ZiqVMi9GJ_933QDnWwUpxtfPgWW2IhoA5fTcjiEqIpoxRQXViD72mEW-DTg9KzquhRIlfWaO4nWC9c" alt="Essential Silk Button-Down">
+                <div class="absolute top-4 left-4 flex flex-col gap-2">
+                    <span class="bg-secondary text-white text-[10px] px-2 py-0.5 font-medium tracking-tighter">공동구매</span>
+                </div>
+            </div>
+            <div class="text-center">
+                <p class="font-body-md text-on-surface font-medium">Essential Silk Button-Down</p>
+                <p class="font-label-caps text-secondary mt-1 tracking-widest">₩ 58,000</p>
+            </div>
+        </div>
+
+        <!-- Row 2 -->
+        <!-- Product Item 5 -->
+        <div class="group flex flex-col space-y-4">
+            <div class="relative aspect-[3/4] overflow-hidden bg-surface-container-low cursor-pointer rounded-[6px]">
+                <img class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAe5xpGG5CQXmgBssqorJ5bwfd6zzOn8kXU2jkLsqd0TG-DyyN0wOLB0xUDc49rt7rpH-XlKQp0H2XQzE3VZX6DCxZ9rDzMibVGoQVIjU9iLrQ_MdKodnt6kfCfkvr8Rrw0IPYqNxcNiCy5pld7q90g_PDEuRupeocaFy1UK9AcdtbkkMbAWE_jIWY7PUFJqs9yMmFoh0sLcbwBLRdHcStJoCqpTVWmjVYeIdRUO0DyIYbx16U9rdvrwZsf-WfmarPNd_d71by7IGo" alt="Modern Structured Blazer">
+            </div>
+            <div class="text-center">
+                <p class="font-body-md text-on-surface font-medium">Modern Structured Blazer</p>
+                <p class="font-label-caps text-secondary mt-1 tracking-widest">₩ 124,000</p>
+            </div>
+        </div>
+
+        <!-- Product Item 6 -->
+        <div class="group flex flex-col space-y-4">
+            <div class="relative aspect-[3/4] overflow-hidden bg-surface-container-low cursor-pointer rounded-[6px]">
+                <img class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBqFaTgTvmY64-XcOhCGhstl1FcdNBwP1qWV0ts3eMjIF-LELIIcA8Hgm_w-PkBXmog4g0P6i8983MEP-MO3oYvlbfKTGLTDKnj2lJRg-vL9DrLhDGY25QRD3E6sK1un6TIarLd1viPSm0dEvSkxbjl33r3SD-962tm6jnfoyx4lfiPBwGvjxSf25x5qK1hy8mSLdWDgFIVG3cItk0UVAbqncBTi12_K9PGofM6s12SA9uyM1Ws1Fg4MBShzFttlYEkt3vMy8e3Ipg" alt="Linen Wrap Summer Dress">
+                <div class="absolute top-4 left-4 flex flex-col gap-2">
+                    <span class="bg-primary text-white text-[10px] px-2 py-0.5 font-medium tracking-tighter">오더만</span>
+                </div>
+                <div class="absolute top-4 right-4">
+                    <span class="material-symbols-outlined text-tertiary-container text-[20px]" style="font-variation-settings: &quot;FILL&quot; 1;">workspace_premium</span>
+                </div>
+            </div>
+            <div class="text-center">
+                <p class="font-body-md text-on-surface font-medium">Linen Wrap Summer Dress</p>
+                <p class="font-label-caps text-secondary mt-1 tracking-widest">₩ 89,000</p>
+            </div>
+        </div>
+
+        <!-- Product Item 7 -->
+        <div class="group flex flex-col space-y-4">
+            <div class="relative aspect-[3/4] overflow-hidden bg-surface-container-low cursor-pointer rounded-[6px]">
+                <img class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBTStytR3l73tRBmvarYdTYLH4ts4KWaWOIjlhmvFdHNQJKKZCibFrSpphCJoqme-_Ug8DwTcayA2SvXDviYlOxrjeq4VRrrLYcS3ayH-Js8nJuiLVu1r2ZgrIjOGWngayJ4EO5jySGxaQKkvrhL5xfuCSkBJSENed5s6wfXrrqwxxWdlvcc5E8Uqj_uSM9-_XDOEd8-tpJ7KOBMPTejxUnMAeKFKIL9YqOYN9nop8R2l820ROa0A8M7getnlRUTkKq7t-nIlxz6Jw" alt="Heavyweight Cotton Tee Set">
+                <div class="absolute top-4 left-4 flex flex-col gap-2">
+                    <span class="bg-secondary text-white text-[10px] px-2 py-0.5 font-medium tracking-tighter">공동구매</span>
+                </div>
+            </div>
+            <div class="text-center">
+                <p class="font-body-md text-on-surface font-medium">Heavyweight Cotton Tee Set</p>
+                <p class="font-label-caps text-secondary mt-1 tracking-widest">₩ 32,000</p>
+            </div>
+        </div>
+
+        <!-- Product Item 8 -->
+        <div class="group flex flex-col space-y-4">
+            <div class="relative aspect-[3/4] overflow-hidden bg-surface-container-low cursor-pointer rounded-[6px]">
+                <img class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA5OA2D8hHQ7mI8JBuWw3og-ROXTLdBGitnzAcPfFc2rzLPjyqUDNT1x344LwdUlbmRMIh2AEE1kRtG7CTrPy3hR2aOy8c68Z-2HO2CA7Q_ZOyOqSYVRJUSwCdkrIFcFXqOApNY7xklmVzxveL0QaqUakNntTI8-84V81mi8g1m1-kX_AJIpdPo6XoxaRSjZG2POtChXKjUlnE3zFwgdIaXd_KUF_iGJpfELdtqR8NYz48-nr-E5j2AsZlygql_df1vFUEeli2Leic" alt="Vintage Wash Relaxed Denim">
+            </div>
+            <div class="text-center">
+                <p class="font-body-md text-on-surface font-medium">Vintage Wash Relaxed Denim</p>
+                <p class="font-label-caps text-secondary mt-1 tracking-widest">₩ 54,000</p>
+            </div>
+        </div>
+    </div>
+</main>
+
+<!-- Footer -->
+<footer class="bg-surface-container-low dark:bg-surface-container-lowest w-full mt-stack-lg border-t border-outline-variant">
+    <div class="flex flex-col md:flex-row justify-between items-center px-margin-desktop py-stack-lg w-full max-w-[1400px] mx-auto">
+        <div class="flex flex-col mb-8 md:mb-0">
+            <span class="font-headline-sm text-headline-sm text-on-surface mb-2">U&ME</span>
+            <p class="font-label-caps text-label-caps text-secondary tracking-widest">© 2026 U&ME B2B CURATION. All rights reserved.</p>
+        </div>
+        <div class="flex flex-wrap justify-center gap-8">
+            <a class="font-label-caps text-label-caps text-secondary hover:text-primary transition-all duration-300 cursor-pointer">Terms of Service</a>
+            <a class="font-label-caps text-label-caps text-secondary hover:text-primary transition-all duration-300 cursor-pointer">Privacy Policy</a>
+            <a class="font-label-caps text-label-caps text-secondary hover:text-primary transition-all duration-300 cursor-pointer">Wholesale Inquiry</a>
+            <a class="font-label-caps text-label-caps text-secondary hover:text-primary transition-all duration-300 cursor-pointer">Contact Support</a>
+        </div>
+    </div>
+</footer>
+
+<script>
+    // Simple interaction for category tabs
+    const tabs = document.querySelectorAll('button[class*="rounded-full"]');
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            tabs.forEach(t => {
+                t.classList.remove('bg-primary', 'text-on-primary');
+                t.classList.add('border', 'border-secondary', 'text-secondary');
+            });
+            tab.classList.remove('border', 'border-secondary', 'text-secondary');
+            tab.classList.add('bg-primary', 'text-on-primary');
+        });
+    });
+
+    // Sticky header opacity effect on scroll
+    window.addEventListener('scroll', () => {
+        const nav = document.querySelector('nav');
+        if (window.scrollY > 20) {
+            nav.classList.add('bg-white/95', 'backdrop-blur-md');
+        } else {
+            nav.classList.remove('bg-white/95', 'backdrop-blur-md');
+        }
+    });
+</script>
+
+</body>
+</html>

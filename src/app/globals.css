@@ -10,6 +10,21 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  
+  /* Google Stitch 2.0 Theme Colors */
+  --color-stitch-primary: #615b51;
+  --color-stitch-secondary: #615e55;
+  --color-stitch-background: #f9f9f7;
+  --color-stitch-on-background: #1a1c1b;
+  --color-stitch-outline: #7c766e;
+  --color-stitch-outline-variant: #cdc5bb;
+  --color-stitch-surface: #f9f9f7;
+  --color-stitch-surface-variant: #e2e3e1;
+  --color-stitch-surface-container-low: #f4f4f2;
+  --color-stitch-surface-container: #eeeeec;
+  --color-stitch-surface-container-high: #e8e8e6;
+  --color-stitch-surface-container-highest: #e2e3e1;
+  --color-stitch-tertiary-container: #cca730;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -22,5 +37,69 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-noto), var(--font-inter), sans-serif;
 }
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleUp {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.2s ease-out forwards;
+}
+
+.animate-scaleUp {
+  animation: scaleUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Luxury Gold Foil Text Effect */
+.gold-foil-text {
+  font-family: var(--font-cinzel), 'Cinzel', 'Playfair Display', Georgia, serif;
+  background: linear-gradient(
+    135deg,
+    #bf953f 0%,
+    #fcf6ba 25%,
+    #b38728 50%,
+    #fbf5b7 75%,
+    #aa771c 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0px 1px 1px rgba(0, 0, 0, 0.3)) drop-shadow(0px 2px 4px rgba(0, 0, 0, 0.25));
+}
+
+/* Luxury Gold Foil Text for Light Backgrounds (Enhanced Contrast) */
+.gold-foil-light-bg {
+  font-family: var(--font-cinzel), 'Cinzel', 'Playfair Display', Georgia, serif;
+  background: linear-gradient(
+    135deg,
+    #bf953f 0%,
+    #fcf6ba 25%,
+    #b38728 50%,
+    #fbf5b7 75%,
+    #aa771c 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+  filter: 
+    drop-shadow(0px 1px 0px rgba(0, 0, 0, 0.8))
+    drop-shadow(1px 1px 1px rgba(0, 0, 0, 0.5))
+    drop-shadow(0px 2px 3px rgba(0, 0, 0, 0.3));
+}
+
+/* Hide Next.js Development Overlay & Dev Portals */
+nextjs-portal {
+  display: none !important;
+}
+
+

@@ -39,3 +39,18 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local database & data
+/pddb_dev/
+
+# temporary and debug folders
+/scratch/
+/scripts/
+/calculator-pages/
+/debug_sort.js
+/src/scratch_migrate.*
+
+# logs and scans
+/*.txt
+/server_logs.txt
+

@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>B2B 도매가 계산기 (오프라인)</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%236366f1'/><g fill='none' stroke='white' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'><rect x='25' y='20' width='50' height='60' rx='8'/><path d='M35 32h30M35 44h8M53 44h12M35 56h8M53 56h12M35 68h30'/></g></svg>">
+  <link rel="apple-touch-icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%236366f1'/><g fill='none' stroke='white' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'><rect x='25' y='20' width='50' height='60' rx='8'/><path d='M35 32h30M35 44h8M53 44h12M35 56h8M53 56h12M35 68h30'/></g></svg>">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+    
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: #09090b;
+      color: #f4f4f5;
+      min-h: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding-bottom: 24px;
+      position: relative;
+      overflow-x: hidden;
+    }
+
+    /* Decorative Blur Backgrounds */
+    .bg-blur-1 {
+      position: absolute;
+      top: -20%;
+      left: -30%;
+      width: 80%;
+      height: 60%;
+      border-radius: 50%;
+      background: rgba(99, 102, 241, 0.08);
+      filter: blur(120px);
+      pointer-events: none;
+      z-index: 0;
+    }
+    .bg-blur-2 {
+      position: absolute;
+      bottom: -10%;
+      right: -20%;
+      width: 70%;
+      height: 50%;
+      border-radius: 50%;
+      background: rgba(168, 85, 247, 0.08);
+      filter: blur(100px);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Glassmorphism Card Style */
+    .glass-card {
+      background: rgba(255, 255, 255, 0.02);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+      border-radius: 16px;
+    }
+
+    header {
+      padding: 24px 20px 8px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 10;
+      max-width: 448px;
+      margin: 0 auto;
+      width: 105%;
+    }
+
+    .header-logo-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .header-logo {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #6366f1, #a855f7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+    }
+
+    .header-title h1 {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      background: linear-gradient(to right, #ffffff, #d4d4d8, #a1a1aa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .header-title p {
+      font-size: 9px;
+      color: #71717a;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-top: 1px;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .btn-action {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      width: 34px;
+      height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: #a1a1aa;
+      transition: all 0.2s;
+    }
+    .btn-action:hover {
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .btn-action:active {
+      transform: scale(0.95);
+    }
+    .btn-action.danger:hover {
+      color: #f43f5e;
+      border-color: rgba(244, 63, 94, 0.2);
+    }
+
+    main {
+      flex: 1;
+      padding: 0 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      z-index: 10;
+      max-width: 448px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    /* Section: Input Group */
+    .input-section {
+      padding: 18px;
+      position: relative;
+    }
+
+    .input-label-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .input-label {
+      font-size: 10px;
+      font-weight: 700;
+      color: #a1a1aa;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .input-badge {
+      font-size: 11px;
+      font-weight: 700;
+      color: #6366f1;
+      background: rgba(99, 102, 241, 0.1);
+      padding: 2px 10px;
+      border-radius: 9999px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .input-currency {
+      position: absolute;
+      left: 16px;
+      font-size: 24px;
+      font-weight: 600;
+      color: #a1a1aa;
+    }
+
+    .cny-input {
+      width: 100%;
+      background: rgba(9, 9, 11, 0.6);
+      border: 1px solid #27272a;
+      border-radius: 12px;
+      padding: 16px 16px 16px 40px;
+      font-size: 30px;
+      font-weight: 700;
+      font-family: monospace;
+      color: #ffffff;
+      transition: all 0.25s;
+    }
+    .cny-input:focus {
+      border-color: rgba(99, 102, 241, 0.6);
+      box-shadow: 0 0 12px rgba(99, 102, 241, 0.25);
+      outline: none;
+    }
+
+    /* Section: Output Group */
+    .output-section {
+      padding: 20px;
+      background: linear-gradient(to bottom, rgba(23, 23, 23, 0.3), rgba(9, 9, 11, 0.3));
+    }
+
+    .output-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      border-bottom: 1px solid rgba(39, 39, 42, 0.8);
+      padding-bottom: 16px;
+      margin-bottom: 16px;
+    }
+
+    .output-title-desc {
+      font-size: 10px;
+      font-weight: 700;
+      color: #a1a1aa;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .output-wholesale-price {
+      font-size: 30px;
+      font-weight: 800;
+      color: #ffffff;
+      font-family: monospace;
+      letter-spacing: -0.025em;
+    }
+
+    .output-cost-container {
+      text-align: right;
+    }
+
+    .output-cost-label {
+      font-size: 11px;
+      color: #71717a;
+      font-weight: 500;
+    }
+
+    .output-cost-value {
+      font-size: 13px;
+      color: #e4e4e7;
+      font-weight: 600;
+      font-family: monospace;
+      margin-top: 1px;
+    }
+
+    /* Grades Table list */
+    .grades-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .grade-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      background: rgba(9, 9, 11, 0.2);
+      border: 1px solid rgba(24, 24, 27, 0.5);
+      border-radius: 12px;
+    }
+    .grade-row.w-grade {
+      background: rgba(99, 102, 241, 0.04);
+      border-color: rgba(99, 102, 241, 0.2);
+    }
+
+    .grade-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .grade-badge {
+      width: 20px;
+      height: 20px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .badge-s { background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.2); }
+    .badge-a { background: rgba(99, 102, 241, 0.1); color: #6366f1; border: 1px solid rgba(99, 102, 241, 0.2); }
+    .badge-b { background: rgba(168, 85, 247, 0.1); color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.2); }
+    .badge-c { background: rgba(244, 63, 94, 0.1); color: #f43f5e; border: 1px solid rgba(244, 63, 94, 0.2); }
+    .badge-w { background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); }
+
+    .grade-name {
+      font-size: 12px;
+      color: #d4d4d8;
+      font-weight: 500;
+    }
+
+    .grade-ratio-label {
+      font-size: 9px;
+      color: #71717a;
+      font-weight: 700;
+      font-family: monospace;
+    }
+    .grade-row.w-grade .grade-name { color: #e0e7ff; font-weight: 700; }
+    .grade-row.w-grade .grade-ratio-label { color: #818cf8; }
+
+    .grade-value {
+      font-size: 14px;
+      font-weight: 700;
+      color: #ffffff;
+      font-family: monospace;
+    }
+    .grade-row.w-grade .grade-value { color: #a5b4fc; }
+
+    /* Section: Settings Accordion */
+    .settings-section {
+      border-radius: 16px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+
+    .settings-trigger {
+      width: 100%;
+      background: none;
+      border: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px;
+      cursor: pointer;
+      color: #e4e4e7;
+      font-size: 13px;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+    .settings-trigger:hover {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .settings-trigger-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .settings-icon {
+      color: #6366f1;
+    }
+
+    .settings-arrow {
+      font-size: 10px;
+      font-weight: 700;
+      font-family: monospace;
+      color: #71717a;
+    }
+
+    .settings-content {
+      border-top: 1px solid #18181b;
+      padding: 18px;
+      background: rgba(0, 0, 0, 0.1);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .settings-row-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    .setting-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .setting-label {
+      font-size: 10px;
+      color: #a1a1aa;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .setting-input {
+      width: 100%;
+      background: #09090b;
+      border: 1px solid #27272a;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      font-family: monospace;
+      color: #ffffff;
+      transition: all 0.25s;
+    }
+    .setting-input:focus {
+      border-color: rgba(99, 102, 241, 0.6);
+      outline: none;
+    }
+
+    /* Slider styling group */
+    .slider-container {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .slider-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .slider-value-badge {
+      font-size: 12px;
+      font-weight: 700;
+      color: #6366f1;
+      font-family: monospace;
+    }
+    .slider-value-badge.amber { color: #f59e0b; }
+    .slider-value-badge.purple { color: #a855f7; }
+    .slider-value-badge.rose { color: #f43f5e; }
+    .slider-value-badge.emerald { color: #10b981; }
+
+    .slider-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* Custom range slider styling */
+    .range-input {
+      flex: 1;
+      -webkit-appearance: none;
+      background: transparent;
+    }
+    .range-input:focus {
+      outline: none;
+    }
+    .range-input::-webkit-slider-runnable-track {
+      width: 100%;
+      height: 4px;
+      cursor: pointer;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+    }
+    .range-input::-webkit-slider-thumb {
+      height: 16px;
+      width: 16px;
+      border-radius: 50%;
+      background: #6366f1;
+      cursor: pointer;
+      -webkit-appearance: none;
+      margin-top: -6px;
+      box-shadow: 0 0 8px rgba(99, 102, 241, 0.5);
+      transition: transform 0.1s;
+    }
+    .range-input::-webkit-slider-thumb:active {
+      transform: scale(1.25);
+      background: #a855f7;
+    }
+
+    .small-input-box {
+      width: 56px;
+      background: #09090b;
+      border: 1px solid #27272a;
+      padding: 4px 6px;
+      border-radius: 4px;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 700;
+      font-family: monospace;
+      color: #ffffff;
+    }
+    .small-input-box:focus {
+      border-color: rgba(99, 102, 241, 0.6);
+      outline: none;
+    }
+
+    footer {
+      padding: 0 20px;
+      text-align: center;
+      z-index: 10;
+      max-width: 448px;
+      margin: 16px auto 0 auto;
+      width: 100%;
+    }
+
+    .footer-text {
+      font-size: 10px;
+      color: #52525b;
+      font-weight: 500;
+    }
+    .footer-text.small {
+      color: #3f3f46;
+      margin-top: 2px;
+    }
+
+    .footer-badge-link {
+      margin-top: 16px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: #71717a;
+      text-decoration: none;
+      font-size: 10px;
+      font-weight: 600;
+      transition: color 0.2s;
+    }
+    .footer-badge-link:hover {
+      color: #a1a1aa;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+  <div class="bg-blur-1"></div>
+  <div class="bg-blur-2"></div>
+
+  <!-- Header -->
+  <header>
+    <div class="header-logo-container">
+      <div class="header-logo">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:#ffffff"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><line x1="9" y1="22" x2="9" y2="16"></line><line x1="8" y1="6" x2="16" y2="6"></line><line x1="16" y1="22" x2="16" y2="16"></line><line x1="9" y1="16" x2="16" y2="16"></line><line x1="9" y1="12" x2="15" y2="12"></line><line x1="9" y1="8" x2="15" y2="8"></line></svg>
+      </div>
+      <div class="header-title">
+        <h1>B2B 도매가 계산기</h1>
+        <p>Offline Calculator App</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <!-- Reset settings -->
+      <button class="btn-action danger" id="btn-reset" title="설정 초기화">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main view -->
+  <main>
+    <!-- INPUT -->
+    <section class="glass-card input-section">
+      <div class="input-label-container">
+        <span class="input-label">중국 원가 입력 (위안화)</span>
+        <div class="input-badge">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+          <span>CNY</span>
+        </div>
+      </div>
+      <div class="input-wrapper">
+        <span class="input-currency">¥</span>
+        <input type="number" id="cny-input" class="cny-input" value="30" placeholder="0" pattern="[0-9]*" inputmode="decimal">
+      </div>
+    </section>
+
+    <!-- OUTPUT -->
+    <section class="glass-card output-section">
+      <div class="output-header">
+        <div>
+          <p class="output-title-desc">최종 산출 도매가</p>
+          <h2 class="output-wholesale-price" id="wholesale-price-val">₩ 0</h2>
+        </div>
+        <div class="output-cost-container">
+          <p class="output-cost-label">원가 (¥➔₩)</p>
+          <p class="output-cost-value" id="cost-price-val">₩ 0</p>
+        </div>
+      </div>
+
+      <!-- Grades Lists -->
+      <div class="grades-list">
+        <p class="output-title-desc">등급별 단가 현황</p>
+        
+        <!-- S Grade -->
+        <div class="grade-row">
+          <div class="grade-info">
+            <span class="grade-badge badge-s">S</span>
+            <span class="grade-name">S등급가</span>
+            <span class="grade-ratio-label" id="ratio-label-s">(85%)</span>
+          </div>
+          <span class="grade-value" id="grade-val-s">₩ 0</span>
+        </div>
+
+        <!-- A Grade -->
+        <div class="grade-row">
+          <div class="grade-info">
+            <span class="grade-badge badge-a">A</span>
+            <span class="grade-name">A등급가</span>
+            <span class="grade-ratio-label" id="ratio-label-a">(89%)</span>
+          </div>
+          <span class="grade-value" id="grade-val-a">₩ 0</span>
+        </div>
+
+        <!-- B Grade -->
+        <div class="grade-row">
+          <div class="grade-info">
+            <span class="grade-badge badge-b">B</span>
+            <span class="grade-name">B등급가</span>
+            <span class="grade-ratio-label" id="ratio-label-b">(93%)</span>
+          </div>
+          <span class="grade-value" id="grade-val-b">₩ 0</span>
+        </div>
+
+        <!-- C Grade -->
+        <div class="grade-row">
+          <div class="grade-info">
+            <span class="grade-badge badge-c">C</span>
+            <span class="grade-name">C등급가</span>
+            <span class="grade-ratio-label" id="ratio-label-c">(97%)</span>
+          </div>
+          <span class="grade-value" id="grade-val-c">₩ 0</span>
+        </div>
+
+        <!-- W Grade -->
+        <div class="grade-row w-grade">
+          <div class="grade-info">
+            <span class="grade-badge badge-w">W</span>
+            <span class="grade-name">W등급가</span>
+            <span class="grade-ratio-label" id="ratio-label-w">(89%)</span>
+          </div>
+          <span class="grade-value" id="grade-val-w">₩ 0</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="glass-card settings-section">
+      <button class="settings-trigger" id="settings-toggle">
+        <div class="settings-trigger-left">
+          <svg class="settings-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          <span>계산 설정 조건 변경</span>
+        </div>
+        <span class="settings-arrow" id="settings-arrow-text">CLOSE ▲</span>
+      </button>
+
+      <div class="settings-content" id="settings-content-panel">
+        <!-- Exchange & Logistics -->
+        <div class="settings-row-2">
+          <div class="setting-group">
+            <span class="setting-label">적용 환율 (₩/¥)</span>
+            <input type="number" id="set-exchange" class="setting-input" value="230">
+          </div>
+          <div class="setting-group">
+            <span class="setting-label">적용 물류비 (₩)</span>
+            <input type="number" id="set-logistics" class="setting-input" value="1200">
+          </div>
+        </div>
+
+        <!-- Margin Ratio -->
+        <div class="slider-container">
+          <div class="slider-header">
+            <span class="setting-label">적용 마진율 (배수)</span>
+            <span class="slider-value-badge" id="badge-margin">1.30배</span>
+          </div>
+          <div class="slider-wrapper">
+            <input type="range" id="slider-margin" class="range-input" min="1.0" max="2.0" step="0.01" value="1.30">
+            <input type="number" id="set-margin" class="small-input-box" step="0.01" value="1.30">
+          </div>
+        </div>
+
+        <!-- S Ratio -->
+        <div class="slider-container">
+          <div class="slider-header">
+            <span class="setting-label">S등급 할인비율</span>
+            <span class="slider-value-badge amber" id="badge-s">85%</span>
+          </div>
+          <div class="slider-wrapper">
+            <input type="range" id="slider-s" class="range-input" min="0.5" max="1.5" step="0.01" value="0.85">
+            <input type="number" id="set-s" class="small-input-box" step="0.01" value="0.85">
+          </div>
+        </div>
+
+        <!-- A Ratio -->
+        <div class="slider-container">
+          <div class="slider-header">
+            <span class="setting-label">A등급 할인비율</span>
+            <span class="slider-value-badge" id="badge-a">89%</span>
+          </div>
+          <div class="slider-wrapper">
+            <input type="range" id="slider-a" class="range-input" min="0.5" max="1.5" step="0.01" value="0.89">
+            <input type="number" id="set-a" class="small-input-box" step="0.01" value="0.89">
+          </div>
+        </div>
+
+        <!-- B Ratio -->
+        <div class="slider-container">
+          <div class="slider-header">
+            <span class="setting-label">B등급 할인비율</span>
+            <span class="slider-value-badge purple" id="badge-b">93%</span>
+          </div>
+          <div class="slider-wrapper">
+            <input type="range" id="slider-b" class="range-input" min="0.5" max="1.5" step="0.01" value="0.93">
+            <input type="number" id="set-b" class="small-input-box" step="0.01" value="0.93">
+          </div>
+        </div>
+
+        <!-- C Ratio -->
+        <div class="slider-container">
+          <div class="slider-header">
+            <span class="setting-label">C등급 할인비율</span>
+            <span class="slider-value-badge rose" id="badge-c">97%</span>
+          </div>
+          <div class="slider-wrapper">
+            <input type="range" id="slider-c" class="range-input" min="0.5" max="1.5" step="0.01" value="0.97">
+            <input type="number" id="set-c" class="small-input-box" step="0.01" value="0.97">
+          </div>
+        </div>
+
+        <!-- W Ratio -->
+        <div class="slider-container">
+          <div class="slider-header">
+            <span class="setting-label" style="color: #a5b4fc">W등급 할인비율</span>
+            <span class="slider-value-badge emerald" id="badge-w">89%</span>
+          </div>
+          <div class="slider-wrapper">
+            <input type="range" id="slider-w" class="range-input" min="0.5" max="1.5" step="0.01" value="0.89">
+            <input type="number" id="set-w" class="small-input-box" step="0.01" value="0.89">
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer>
+    <p class="footer-text">도매가 = (원가 * 마진율)에서 1,000원 단위 반올림 적용.</p>
+    <p class="footer-text small">각 등급가 = 도매가 * 할인율에서 100원 단위 반올림 적용.</p>
+    <a href="#" class="footer-badge-link" onclick="window.print(); return false;">
+      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+      <span>현재 화면 저장 / 프린트</span>
+    </a>
+  </footer>
+
+  <script>
+    const DEFAULT_SETTINGS = {
+      exchange: 230,
+      logistics: 1200,
+      margin: 1.30,
+      sRatio: 0.85,
+      aRatio: 0.89,
+      bRatio: 0.93,
+      cRatio: 0.97,
+      wRatio: 0.89
+    };
+
+    let settings = { ...DEFAULT_SETTINGS };
+
+    // Load from LocalStorage
+    function loadSettings() {
+      try {
+        const saved = localStorage.getItem('b2b_calc_settings_offline');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          Object.keys(DEFAULT_SETTINGS).forEach(key => {
+            if (parsed[key] !== undefined) {
+              settings[key] = parsed[key];
+            }
+          });
+        }
+      } catch (e) {
+        console.error('Failed to load local storage:', e);
+      }
+    }
+
+    // Save to LocalStorage
+    function saveSettings() {
+      try {
+        localStorage.setItem('b2b_calc_settings_offline', JSON.stringify(settings));
+      } catch (e) {
+        console.error('Failed to save local storage:', e);
+      }
+    }
+
+    // Bind DOM Elements
+    const dom = {
+      cnyInput: document.getElementById('cny-input'),
+      wholesaleVal: document.getElementById('wholesale-price-val'),
+      costVal: document.getElementById('cost-price-val'),
+      btnReset: document.getElementById('btn-reset'),
+      settingsToggle: document.getElementById('settings-toggle'),
+      settingsPanel: document.getElementById('settings-content-panel'),
+      settingsArrow: document.getElementById('settings-arrow-text'),
+      
+      // Settings Inputs
+      setExchange: document.getElementById('set-exchange'),
+      setLogistics: document.getElementById('set-logistics'),
+      
+      // Sliders & Number sync inputs
+      margin: { slider: document.getElementById('slider-margin'), num: document.getElementById('set-margin'), badge: document.getElementById('badge-margin') },
+      s: { slider: document.getElementById('slider-s'), num: document.getElementById('set-s'), badge: document.getElementById('badge-s'), label: document.getElementById('ratio-label-s'), val: document.getElementById('grade-val-s') },
+      a: { slider: document.getElementById('slider-a'), num: document.getElementById('set-a'), badge: document.getElementById('badge-a'), label: document.getElementById('ratio-label-a'), val: document.getElementById('grade-val-a') },
+      b: { slider: document.getElementById('slider-b'), num: document.getElementById('set-b'), badge: document.getElementById('badge-b'), label: document.getElementById('ratio-label-b'), val: document.getElementById('grade-val-b') },
+      c: { slider: document.getElementById('slider-c'), num: document.getElementById('set-c'), badge: document.getElementById('badge-c'), label: document.getElementById('ratio-label-c'), val: document.getElementById('grade-val-c') },
+      w: { slider: document.getElementById('slider-w'), num: document.getElementById('set-w'), badge: document.getElementById('badge-w'), label: document.getElementById('ratio-label-w'), val: document.getElementById('grade-val-w') }
+    };
+
+    // Update Input UI Fields from JS Settings
+    function syncSettingsToUI() {
+      dom.setExchange.value = settings.exchange;
+      dom.setLogistics.value = settings.logistics;
+      
+      // Sync margin
+      dom.margin.slider.value = settings.margin;
+      dom.margin.num.value = settings.margin;
+      dom.margin.badge.innerText = settings.margin.toFixed(2) + '배';
+
+      // Sync grade ratios
+      const syncGrade = (gradeKey, elements) => {
+        const val = settings[gradeKey];
+        elements.slider.value = val;
+        elements.num.value = val;
+        elements.badge.innerText = Math.round(val * 100) + '%';
+        elements.label.innerText = '(' + Math.round(val * 100) + '%)';
+      };
+
+      syncGrade('sRatio', dom.s);
+      syncGrade('aRatio', dom.a);
+      syncGrade('bRatio', dom.b);
+      syncGrade('cRatio', dom.c);
+      syncGrade('wRatio', dom.w);
+    }
+
+    // Core Calculation Logic
+    function calculate() {
+      const cnPrice = parseFloat(dom.cnyInput.value) || 0;
+      
+      // 1. Cost = CNY * Exchange + Logistics
+      const cost = Math.round(cnPrice * settings.exchange + settings.logistics);
+      dom.costVal.innerText = '₩ ' + cost.toLocaleString('ko-KR');
+
+      // 2. Wholesale = Cost * Margin (rounded to nearest 1,000)
+      const wholesale = Math.round((cost * settings.margin) / 1000) * 1000;
+      dom.wholesaleVal.innerText = '₩ ' + wholesale.toLocaleString('ko-KR');
+
+      // 3. Grade prices = Wholesale * GradeRatio (rounded to nearest 100)
+      const updateGradePrice = (elements, ratio) => {
+        const gradeVal = Math.round((wholesale * ratio) / 100) * 100;
+        elements.val.innerText = '₩ ' + gradeVal.toLocaleString('ko-KR');
+      };
+
+      updateGradePrice(dom.s, settings.sRatio);
+      updateGradePrice(dom.a, settings.aRatio);
+      updateGradePrice(dom.b, settings.bRatio);
+      updateGradePrice(dom.c, settings.cRatio);
+      updateGradePrice(dom.w, settings.wRatio);
+    }
+
+    // Accordion Toggle
+    let isSettingsOpen = true;
+    dom.settingsToggle.addEventListener('click', () => {
+      isSettingsOpen = !isSettingsOpen;
+      if (isSettingsOpen) {
+        dom.settingsPanel.classList.remove('hidden');
+        dom.settingsArrow.innerText = 'CLOSE ▲';
+      } else {
+        dom.settingsPanel.classList.add('hidden');
+        dom.settingsArrow.innerText = 'OPEN ▼';
+      }
+    });
+
+    // Reset button
+    dom.btnReset.addEventListener('click', () => {
+      if (confirm('설정 조건들을 초기화하시겠습니까?')) {
+        settings = { ...DEFAULT_SETTINGS };
+        saveSettings();
+        syncSettingsToUI();
+        calculate();
+      }
+    });
+
+    // Inputs events listener setup
+    dom.cnyInput.addEventListener('input', calculate);
+
+    dom.setExchange.addEventListener('input', (e) => {
+      settings.exchange = parseFloat(e.target.value) || 0;
+      saveSettings();
+      calculate();
+    });
+
+    dom.setLogistics.addEventListener('input', (e) => {
+      settings.logistics = parseInt(e.target.value) || 0;
+      saveSettings();
+      calculate();
+    });
+
+    // Sync Slider & Textbox inputs helper
+    function setupSliderSync(key, elements, isPercent = true) {
+      // Slider input change
+      elements.slider.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value) || 0;
+        settings[key] = val;
+        elements.num.value = val;
+        elements.badge.innerText = isPercent ? Math.round(val * 100) + '%' : val.toFixed(2) + '배';
+        if (elements.label) elements.label.innerText = '(' + Math.round(val * 100) + '%)';
+        saveSettings();
+        calculate();
+      });
+
+      // Number input box change
+      elements.num.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value) || 0;
+        settings[key] = val;
+        elements.slider.value = val;
+        elements.badge.innerText = isPercent ? Math.round(val * 100) + '%' : val.toFixed(2) + '배';
+        if (elements.label) elements.label.innerText = '(' + Math.round(val * 100) + '%)';
+        saveSettings();
+        calculate();
+      });
+    }
+
+    setupSliderSync('margin', dom.margin, false);
+    setupSliderSync('sRatio', dom.s);
+    setupSliderSync('aRatio', dom.a);
+    setupSliderSync('bRatio', dom.b);
+    setupSliderSync('cRatio', dom.c);
+    setupSliderSync('wRatio', dom.w);
+
+    // Initializer
+    loadSettings();
+    syncSettingsToUI();
+    calculate();
+  </script>
+</body>
+</html>
