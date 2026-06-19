@@ -86,6 +86,7 @@ const CUSTOMER_INSERT_COLUMNS = ['name', 'grade', 'owner_cart_allowed', 'login_b
 const ORDER_INSERT_COLUMNS = ['id', 'customer_name', 'product_code', 'color', 'quantity', 'amount', 'order_at', 'payload', 'updated_at'] as const;
 const PAYMENT_INSERT_COLUMNS = ['id', 'customer_name', 'payment_at', 'amount', 'payload', 'updated_at'] as const;
 const CART_INSERT_COLUMNS = ['customerName', 'productCode', 'color', 'quantity', 'category', 'updatedAt'] as const;
+const MAX_D1_SQL_VARIABLES_PER_STATEMENT = 90;
 
 function chunkArray<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
@@ -98,6 +99,14 @@ function chunkArray<T>(items: T[], size: number): T[][] {
 function valuesPlaceholders(rowCount: number, columnCount: number): string {
   const row = `(${Array.from({ length: columnCount }, () => '?').join(', ')})`;
   return Array.from({ length: rowCount }, () => row).join(', ');
+}
+
+function maxRowsPerInsert(columnCount: number): number {
+  return Math.max(1, Math.floor(MAX_D1_SQL_VARIABLES_PER_STATEMENT / columnCount));
+}
+
+function chunkRowsForInsert<T>(rows: T[], columnCount: number): T[][] {
+  return chunkArray(rows, maxRowsPerInsert(columnCount));
 }
 
 function uniqueNonEmpty(values: string[]): string[] {
@@ -376,7 +385,7 @@ export async function writeCloudProducts(products: Product[], replaceAll = false
     return acc;
   }, []);
 
-  for (const chunk of chunkArray(rows, 40)) {
+  for (const chunk of chunkRowsForInsert(rows, PRODUCT_INSERT_COLUMNS.length)) {
     queries.push({
       sql: `INSERT OR REPLACE INTO products (${PRODUCT_INSERT_COLUMNS.join(', ')}) VALUES ${valuesPlaceholders(chunk.length, PRODUCT_INSERT_COLUMNS.length)}`,
       params: chunk.flat(),
@@ -444,7 +453,7 @@ export async function writeCloudCustomers(customers: Customer[], replaceAll = fa
     return acc;
   }, []);
 
-  for (const chunk of chunkArray(rows, 80)) {
+  for (const chunk of chunkRowsForInsert(rows, CUSTOMER_INSERT_COLUMNS.length)) {
     queries.push({
       sql: `INSERT OR REPLACE INTO customers (${CUSTOMER_INSERT_COLUMNS.join(', ')}) VALUES ${valuesPlaceholders(chunk.length, CUSTOMER_INSERT_COLUMNS.length)}`,
       params: chunk.flat(),
@@ -516,7 +525,7 @@ export async function writeCloudOrders(orders: CustomerOrder[], replaceAll = fal
       ];
   });
 
-  for (const chunk of chunkArray(rows, 60)) {
+  for (const chunk of chunkRowsForInsert(rows, ORDER_INSERT_COLUMNS.length)) {
     queries.push({
       sql: `INSERT OR REPLACE INTO orders (${ORDER_INSERT_COLUMNS.join(', ')}) VALUES ${valuesPlaceholders(chunk.length, ORDER_INSERT_COLUMNS.length)}`,
       params: chunk.flat(),
@@ -580,7 +589,7 @@ export async function writeCloudPayments(payments: PaymentLog[], replaceAll = fa
       ];
   });
 
-  for (const chunk of chunkArray(rows, 80)) {
+  for (const chunk of chunkRowsForInsert(rows, PAYMENT_INSERT_COLUMNS.length)) {
     queries.push({
       sql: `INSERT OR REPLACE INTO payments (${PAYMENT_INSERT_COLUMNS.join(', ')}) VALUES ${valuesPlaceholders(chunk.length, PAYMENT_INSERT_COLUMNS.length)}`,
       params: chunk.flat(),
@@ -639,7 +648,7 @@ export async function writeCloudCartSnapshot(customerName: string, items: Omit<C
     return acc;
   }, []);
 
-  for (const chunk of chunkArray(rows, 80)) {
+  for (const chunk of chunkRowsForInsert(rows, CART_INSERT_COLUMNS.length)) {
     queries.push({
       sql: `INSERT OR REPLACE INTO cart_snapshots (${CART_INSERT_COLUMNS.join(', ')}) VALUES ${valuesPlaceholders(chunk.length, CART_INSERT_COLUMNS.length)}`,
       params: chunk.flat(),
@@ -726,7 +735,7 @@ export async function writeCloudCategories(categories: CategoryMaster[], replace
     .map((category) => normalizeCategory(category))
     .filter((category) => Boolean(category.카테고리))
     .map((category) => [category.카테고리, JSON.stringify(category), now]);
-  for (const chunk of chunkArray(rows, 120)) {
+  for (const chunk of chunkRowsForInsert(rows, 3)) {
     queries.push({
       sql: `INSERT OR REPLACE INTO categories (name, payload, updated_at) VALUES ${valuesPlaceholders(chunk.length, 3)}`,
       params: chunk.flat(),
@@ -771,7 +780,7 @@ export async function writeCloudItems(items: ItemMaster[], replaceAll = false): 
     .map((item) => normalizeItem(item))
     .filter((item) => Boolean(item.아이템))
     .map((item) => [item.아이템, JSON.stringify(item), now]);
-  for (const chunk of chunkArray(rows, 120)) {
+  for (const chunk of chunkRowsForInsert(rows, 3)) {
     queries.push({
       sql: `INSERT OR REPLACE INTO items (name, payload, updated_at) VALUES ${valuesPlaceholders(chunk.length, 3)}`,
       params: chunk.flat(),
@@ -803,7 +812,7 @@ export async function writeCloudColors(colors: ColorMaster[], replaceAll = false
     .map((color) => normalizeColor(color))
     .filter((color) => Boolean(color.컬러))
     .map((color) => [color.컬러, JSON.stringify(color), now]);
-  for (const chunk of chunkArray(rows, 120)) {
+  for (const chunk of chunkRowsForInsert(rows, 3)) {
     queries.push({
       sql: `INSERT OR REPLACE INTO colors (name, payload, updated_at) VALUES ${valuesPlaceholders(chunk.length, 3)}`,
       params: chunk.flat(),
