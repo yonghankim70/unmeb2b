@@ -134,6 +134,7 @@ export interface CustomerOrder {
 }
 
 export interface PaymentLog {
+  id?: string;
   입금일자: string;
   거래처명: string;
   입금금액: number;

@@ -176,10 +176,13 @@ export default function AdminLedgerPage() {
   };
 
   // Handle delete payment
-  const handleDeletePayment = async (index: number) => {
+  const handleDeletePayment = async (paymentId?: string, index?: number) => {
     if (!confirm('정말로 이 입금 기록을 삭제하시겠습니까?')) return;
     try {
-      const res = await fetch(`/api/admin/payments?index=${index}`, {
+      const query = paymentId
+        ? `id=${encodeURIComponent(paymentId)}`
+        : `index=${index}`;
+      const res = await fetch(`/api/admin/payments?${query}`, {
         method: 'DELETE'
       });
       const data = await res.json();
@@ -428,7 +431,8 @@ export default function AdminLedgerPage() {
       orderAmount: number;
       shippedAmount: number;
       depositAmount: number;
-      paymentIndex?: number; // to allow deletion of manual deposit logs
+      paymentId?: string;
+      paymentIndex?: number;
     }
 
     const ledgerItems: LedgerRow[] = [];
@@ -526,6 +530,7 @@ export default function AdminLedgerPage() {
         orderAmount: 0,
         shippedAmount: 0,
         depositAmount: p.입금금액,
+        paymentId: p.id,
         paymentIndex: pIdx !== -1 ? pIdx : undefined
       });
     });
@@ -1235,7 +1240,7 @@ export default function AdminLedgerPage() {
                           <td className="py-2.5 px-4 text-center">
                             {row.type === '입금' && row.paymentIndex !== undefined ? (
                               <button
-                                onClick={() => handleDeletePayment(row.paymentIndex!)}
+                                onClick={() => handleDeletePayment(row.paymentId, row.paymentIndex)}
                                 className="text-neutral-400 hover:text-rose-600 transition-colors p-1"
                                 title="입금 로그 삭제"
                               >

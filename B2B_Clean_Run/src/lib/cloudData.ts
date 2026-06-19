@@ -50,6 +50,12 @@ type CustomerPayloadRow = PayloadRow & {
   owner_cart_allowed?: string;
   login_blocked?: string;
 };
+type PaymentPayloadRow = PayloadRow & {
+  id?: string;
+  customer_name?: string;
+  payment_at?: string;
+  amount?: number;
+};
 type SettingRow = { key: string; value: string };
 type D1WriteQuery = { sql: string; params?: unknown[] };
 
@@ -129,6 +135,32 @@ function normalizeCustomer(customer: Customer, row?: CustomerPayloadRow): Custom
 
 function orderId(order: CustomerOrder, index = 0): string {
   return String(order.주문번호 || `${order.주문일시}-${order.거래처명}-${order.상품코드}-${order.컬러}-${index}`);
+}
+
+function paymentId(payment: PaymentLog, index = 0): string {
+  if (payment.id) return String(payment.id).trim();
+  return [
+    payment.입금일자 || '',
+    payment.거래처명 || '',
+    payment.입금금액 || 0,
+    payment.입금방식 || '',
+    payment.입금자 || '',
+    payment.비고 || '',
+    index,
+  ].map((value) => String(value).trim()).join('|');
+}
+
+function normalizePayment(payment: PaymentLog, row?: PaymentPayloadRow): PaymentLog {
+  return {
+    ...payment,
+    id: payment.id || row?.id || paymentId(payment),
+    입금일자: payment.입금일자 || row?.payment_at || '',
+    거래처명: payment.거래처명 || row?.customer_name || '',
+    입금금액: Number(payment.입금금액 || row?.amount || 0),
+    입금방식: payment.입금방식 || '',
+    입금자: payment.입금자 || '',
+    비고: payment.비고 || '',
+  };
 }
 
 let ensureCloudSchemaPromise: Promise<void> | null = null;
@@ -417,22 +449,32 @@ export async function readCloudOrdersByCustomer(customerName: string): Promise<C
 
 export async function readCloudPayments(): Promise<PaymentLog[]> {
   await ensureCloudSchema();
-  const rows = await queryD1<PayloadRow>('SELECT payload FROM payments ORDER BY payment_at ASC, id ASC');
-  return rows.map((row) => parsePayload<PaymentLog>(row, {} as PaymentLog));
+  const rows = await queryD1<PaymentPayloadRow>(
+    'SELECT id, customer_name, payment_at, amount, payload FROM payments ORDER BY payment_at ASC, id ASC'
+  );
+  return rows.map((row) => normalizePayment(parsePayload<PaymentLog>(row, {} as PaymentLog), row));
 }
 
-export async function writeCloudPayments(payments: PaymentLog[]): Promise<void> {
+export async function writeCloudPayments(payments: PaymentLog[], replaceAll = false): Promise<void> {
   await ensureCloudSchema();
-  const queries: D1WriteQuery[] = [{ sql: 'DELETE FROM payments' }];
+  const queries: D1WriteQuery[] = [];
+  if (replaceAll) {
+    if (process.env.ALLOW_CLOUD_REPLACE_ALL_PAYMENTS !== 'true') {
+      throw new Error('운영 D1 입금 내역 전체 덮어쓰기는 차단되어 있습니다. 입금 추가/삭제는 단건으로 반영해야 합니다.');
+    }
+    queries.push({ sql: 'DELETE FROM payments' });
+  }
+
   const now = new Date().toISOString();
   const rows = payments.map((payment, index) => {
-    const id = `${payment.입금일자 || ''}-${payment.거래처명 || ''}-${payment.입금금액 || 0}-${index}`;
+    const normalized = normalizePayment(payment);
+    const id = paymentId(normalized, index);
     return [
         id,
-        payment.거래처명 || '',
-        payment.입금일자 || '',
-        Number(payment.입금금액 || 0),
-        JSON.stringify(payment),
+        normalized.거래처명 || '',
+        normalized.입금일자 || '',
+        Number(normalized.입금금액 || 0),
+        JSON.stringify({ ...normalized, id }),
         now,
       ];
   });
@@ -445,6 +487,36 @@ export async function writeCloudPayments(payments: PaymentLog[]): Promise<void> 
   }
 
   await runWriteBatch(queries);
+}
+
+export async function writeCloudPayment(payment: PaymentLog): Promise<PaymentLog> {
+  await ensureCloudSchema();
+  const now = new Date().toISOString();
+  const normalized = normalizePayment({
+    ...payment,
+    id: payment.id || `pay-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+  });
+
+  await queryD1(
+    `INSERT OR REPLACE INTO payments (${PAYMENT_INSERT_COLUMNS.join(', ')}) VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      normalized.id || paymentId(normalized),
+      normalized.거래처명 || '',
+      normalized.입금일자 || '',
+      Number(normalized.입금금액 || 0),
+      JSON.stringify(normalized),
+      now,
+    ],
+  );
+
+  return normalized;
+}
+
+export async function deleteCloudPayment(paymentIdValue: string): Promise<void> {
+  await ensureCloudSchema();
+  const id = String(paymentIdValue || '').trim();
+  if (!id) return;
+  await queryD1('DELETE FROM payments WHERE id = ?', [id]);
 }
 
 export async function readCloudCartSnapshots(): Promise<CartSnapshotItem[]> {

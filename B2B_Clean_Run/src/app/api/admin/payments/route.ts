@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readAllPayments, writeAllPayments, PaymentLog } from '@/lib/db';
+import { readAllPayments, writeAllPayments, writePayment, PaymentLog } from '@/lib/db';
 import { isAdminAuthenticated } from '@/lib/adminAuth';
 import { isCloudDbEnabled } from '@/lib/cloudflareD1';
-import { readCloudPayments, writeCloudPayments } from '@/lib/cloudData';
+import { deleteCloudPayment, readCloudPayments, writeCloudPayment } from '@/lib/cloudData';
 
 export async function GET(request: NextRequest) {
   try {
@@ -41,14 +41,12 @@ export async function POST(request: NextRequest) {
     };
 
     const cloudMode = isCloudDbEnabled();
-    const payments = cloudMode ? await readCloudPayments() : readAllPayments();
-    payments.push(newPayment);
     if (cloudMode) {
-      await writeCloudPayments(payments);
-      return NextResponse.json({ success: true, message: '입금이 운영 서버에 기록되었습니다.' });
+      const savedPayment = await writeCloudPayment(newPayment);
+      return NextResponse.json({ success: true, message: '입금이 운영 서버에 기록되었습니다.', payment: savedPayment });
     }
 
-    const success = writeAllPayments(payments);
+    const success = writePayment(newPayment);
 
     if (success) {
       return NextResponse.json({ success: true, message: '입금이 성공적으로 기록되었습니다.' });
@@ -68,26 +66,32 @@ export async function DELETE(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id') || '';
     const indexStr = searchParams.get('index');
 
-    if (indexStr === null) {
+    if (!id && indexStr === null) {
       return NextResponse.json({ success: false, message: '삭제할 인덱스가 누락되었습니다.' }, { status: 400 });
     }
 
-    const index = parseInt(indexStr, 10);
     const cloudMode = isCloudDbEnabled();
-    const payments = cloudMode ? await readCloudPayments() : readAllPayments();
+
+    if (cloudMode) {
+      if (!id) {
+        return NextResponse.json({ success: false, message: '운영 서버에서는 입금 ID 기준 삭제만 허용됩니다.' }, { status: 400 });
+      }
+
+      await deleteCloudPayment(id);
+      return NextResponse.json({ success: true, message: '입금 내역이 운영 서버에서 삭제되었습니다.' });
+    }
+
+    const index = parseInt(indexStr || '', 10);
+    const payments = readAllPayments();
 
     if (isNaN(index) || index < 0 || index >= payments.length) {
       return NextResponse.json({ success: false, message: '올바르지 않은 인덱스 범위입니다.' }, { status: 400 });
     }
 
     payments.splice(index, 1);
-    if (cloudMode) {
-      await writeCloudPayments(payments);
-      return NextResponse.json({ success: true, message: '입금 내역이 운영 서버에서 삭제되었습니다.' });
-    }
-
     const success = writeAllPayments(payments);
 
     if (success) {
