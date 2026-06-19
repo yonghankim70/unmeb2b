@@ -56,6 +56,14 @@ type PaymentPayloadRow = PayloadRow & {
   payment_at?: string;
   amount?: number;
 };
+type OrderPayloadRow = PayloadRow & {
+  customer_name?: string;
+  product_code?: string;
+  color?: string;
+  quantity?: number;
+  amount?: number;
+  order_at?: string;
+};
 type NamedPayloadRow = PayloadRow & { name?: string };
 type SettingRow = { key: string; value: string };
 type D1WriteQuery = { sql: string; params?: unknown[] };
@@ -134,8 +142,33 @@ function normalizeCustomer(customer: Customer, row?: CustomerPayloadRow): Custom
   };
 }
 
+function orderKeyParts(order: CustomerOrder): string[] {
+  return [
+    order.주문일시 || '',
+    order.거래처명 || '',
+    order.상품코드 || '',
+    order.컬러 || '',
+  ].map((value) => String(value).trim());
+}
+
 function orderId(order: CustomerOrder, index = 0): string {
-  return String(order.주문번호 || `${order.주문일시}-${order.거래처명}-${order.상품코드}-${order.컬러}-${index}`);
+  const stableParts = [
+    order.주문번호 || '',
+    ...orderKeyParts(order),
+  ].map((value) => String(value || '').trim()).filter(Boolean);
+  return stableParts.length > 0 ? stableParts.join('|') : `order-${index}`;
+}
+
+function normalizeOrder(order: CustomerOrder, row?: OrderPayloadRow): CustomerOrder {
+  return {
+    ...order,
+    주문일시: order.주문일시 || row?.order_at || '',
+    거래처명: order.거래처명 || row?.customer_name || '',
+    상품코드: order.상품코드 || row?.product_code || '',
+    컬러: order.컬러 || row?.color || '',
+    수량: Number(order.수량 || row?.quantity || 0),
+    금액: order.금액 === undefined ? Number(row?.amount || 0) : Number(order.금액 || 0),
+  };
 }
 
 function paymentId(payment: PaymentLog, index = 0): string {
@@ -438,15 +471,34 @@ export async function deleteCloudCustomers(customerNames: string[]): Promise<voi
 
 export async function readCloudOrders(): Promise<CustomerOrder[]> {
   await ensureCloudSchema();
-  const rows = await queryD1<PayloadRow>('SELECT payload FROM orders ORDER BY order_at ASC, id ASC');
-  return rows.map((row) => parsePayload<CustomerOrder>(row, {} as CustomerOrder));
+  const rows = await queryD1<OrderPayloadRow>(
+    'SELECT customer_name, product_code, color, quantity, amount, order_at, payload FROM orders ORDER BY order_at ASC, id ASC'
+  );
+  return rows
+    .map((row) => normalizeOrder(parsePayload<CustomerOrder>(row, {} as CustomerOrder), row))
+    .filter((order) => order.주문일시 || order.거래처명 || order.상품코드);
 }
 
-export async function writeCloudOrders(orders: CustomerOrder[], replaceAll = true): Promise<void> {
+export async function writeCloudOrders(orders: CustomerOrder[], replaceAll = false): Promise<void> {
   await ensureCloudSchema();
   const queries: D1WriteQuery[] = [];
   if (replaceAll) {
+    if (process.env.ALLOW_CLOUD_REPLACE_ALL_ORDERS !== 'true') {
+      throw new Error('운영 D1 주문 전체 덮어쓰기는 차단되어 있습니다. 주문 수정/삭제는 변경분으로 반영해야 합니다.');
+    }
     queries.push({ sql: 'DELETE FROM orders' });
+  } else {
+    const touchedKeys = new Set<string>();
+    orders.forEach((order) => {
+      const [orderAt, customerNameValue, productCode, color] = orderKeyParts(order);
+      const key = [orderAt, customerNameValue, productCode, color].join('|');
+      if (!orderAt || !customerNameValue || !productCode || touchedKeys.has(key)) return;
+      touchedKeys.add(key);
+      queries.push({
+        sql: 'DELETE FROM orders WHERE order_at = ? AND customer_name = ? AND product_code = ? AND color = ?',
+        params: [orderAt, customerNameValue, productCode, color],
+      });
+    });
   }
   const now = new Date().toISOString();
   const rows = orders.map((order, index) => {
@@ -470,6 +522,22 @@ export async function writeCloudOrders(orders: CustomerOrder[], replaceAll = tru
       params: chunk.flat(),
     });
   }
+
+  await runWriteBatch(queries);
+}
+
+export async function deleteCloudOrdersByKeys(orderKeys: string[]): Promise<void> {
+  await ensureCloudSchema();
+  const keys = uniqueNonEmpty(orderKeys);
+  const queries = keys.reduce<D1WriteQuery[]>((acc, key) => {
+    const [orderAt, customerNameValue, productCode, color] = key.split('|');
+    if (!orderAt || !customerNameValue || !productCode) return acc;
+    acc.push({
+      sql: 'DELETE FROM orders WHERE order_at = ? AND customer_name = ? AND product_code = ? AND color = ?',
+      params: [orderAt, customerNameValue, productCode, color || ''],
+    });
+    return acc;
+  }, []);
 
   await runWriteBatch(queries);
 }

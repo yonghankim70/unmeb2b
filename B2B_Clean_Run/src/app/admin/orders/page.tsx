@@ -10,6 +10,23 @@ import {
   HelpCircle, Trash2, Search, CheckCircle2, Clock, Package, Printer
 } from 'lucide-react';
 
+function getOrderKey(order: CustomerOrder): string {
+  return [
+    order.주문일시 || '',
+    order.거래처명 || '',
+    order.상품코드 || '',
+    order.컬러 || '',
+  ].map((value) => String(value).trim()).join('|');
+}
+
+function uniqueKeys(keys: string[]): string[] {
+  return Array.from(new Set(keys.map((key) => String(key || '').trim()).filter(Boolean)));
+}
+
+function findOrderIndexByKey(orders: CustomerOrder[], key: string): number {
+  return orders.findIndex((order) => getOrderKey(order) === key);
+}
+
 export default function AdminOrdersPage() {
   const router = useRouter();
 
@@ -29,8 +46,9 @@ export default function AdminOrdersPage() {
   const [completionFilter, setCompletionFilter] = useState('n'); // n: 진행중, y: 종결, ALL: 전체
 
 
-  // 선택된 주문 키 상태 (주문일시_상품코드_컬러 포맷)
+  // 선택된 주문 키 상태 (주문일시|거래처명|상품코드|컬러 포맷)
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  const [deletedOrderKeys, setDeletedOrderKeys] = useState<string[]>([]);
   // 선택 삭제 확인 대화상자 상태
   const [deleteDialog, setDeleteDialog] = useState<{ show: boolean; count: number } | null>(null);
 
@@ -119,6 +137,8 @@ export default function AdminOrdersPage() {
       const data = await res.json();
       if (data.success) {
         setOrders(data.orders || []);
+        setSelectedKeys([]);
+        setDeletedOrderKeys([]);
       }
     } catch (e) {
       console.error('Failed to load orders:', e);
@@ -143,18 +163,23 @@ export default function AdminOrdersPage() {
   }, [isAuthenticated]);
 
   // Save changes back to database
-  const handleSaveOrders = async (ordersList = orders) => {
+  const handleSaveOrders = async (ordersList = orders, deleteKeys = deletedOrderKeys) => {
     if (saving) return;
     setSaving(true);
     try {
       const res = await fetch('/api/admin/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orders: ordersList })
+        body: JSON.stringify({
+          orders: ordersList,
+          deletedOrderKeys: deleteKeys,
+          replaceAllOrders: false
+        })
       });
       const data = await res.json();
       if (data.success) {
         alert('주문 변경 사항이 성공적으로 저장되었습니다.');
+        setDeletedOrderKeys([]);
         loadOrders();
       } else {
         alert(data.message || '저장 중 오류가 발생했습니다.');
@@ -188,7 +213,7 @@ export default function AdminOrdersPage() {
   const handleFieldChange = (index: number, field: keyof CustomerOrder, value: any) => {
     const updated = [...orders];
     const targetOrder = updated[index];
-    const targetKey = `${targetOrder.주문일시}_${targetOrder.상품코드}_${targetOrder.컬러}`;
+    const targetKey = getOrderKey(targetOrder);
     const isTargetSelected = selectedKeys.includes(targetKey);
 
     // Prepare shared slip number and shipping date if shipping is initiated
@@ -216,7 +241,7 @@ export default function AdminOrdersPage() {
     const indicesToUpdate: number[] = [];
     if (isTargetSelected) {
       updated.forEach((o, i) => {
-        const k = `${o.주문일시}_${o.상품코드}_${o.컬러}`;
+        const k = getOrderKey(o);
         if (selectedKeys.includes(k)) {
           indicesToUpdate.push(i);
         }
@@ -310,7 +335,7 @@ export default function AdminOrdersPage() {
     if (selectedKeys.length === 0) return;
 
     const selectedOrders = orders.filter(o => {
-      const key = `${o.주문일시}_${o.상품코드}_${o.컬러}`;
+      const key = getOrderKey(o);
       return selectedKeys.includes(key);
     });
 
@@ -339,11 +364,7 @@ export default function AdminOrdersPage() {
       // Find if any item already has a slip number
       let existingSlip = '';
       groupItems.forEach(item => {
-        const found = updatedOrders.find(o => 
-          o.주문일시 === item.주문일시 && 
-          o.상품코드 === item.상품코드 && 
-          o.컬러 === item.컬러
-        );
+        const found = updatedOrders.find(o => getOrderKey(o) === getOrderKey(item));
         if (found && found.전표번호) {
           existingSlip = found.전표번호;
         }
@@ -357,11 +378,7 @@ export default function AdminOrdersPage() {
 
       // Assign the shared slip number and shipping date to all items in this group
       groupItems.forEach(item => {
-        const globalIdx = updatedOrders.findIndex(o => 
-          o.주문일시 === item.주문일시 && 
-          o.상품코드 === item.상품코드 && 
-          o.컬러 === item.컬러
-        );
+        const globalIdx = findOrderIndexByKey(updatedOrders, getOrderKey(item));
         if (globalIdx !== -1) {
           let changed = false;
           const o = updatedOrders[globalIdx];
@@ -383,11 +400,7 @@ export default function AdminOrdersPage() {
 
     const grouped: { [customerName: string]: CustomerOrder[] } = {};
     selectedOrders.forEach(so => {
-      const matched = updatedOrders.find(o => 
-        o.주문일시 === so.주문일시 && 
-        o.상품코드 === so.상품코드 && 
-        o.컬러 === so.컬러
-      );
+      const matched = updatedOrders.find(o => getOrderKey(o) === getOrderKey(so));
       const itemToUse = matched || so;
       if (!grouped[itemToUse.거래처명]) {
         grouped[itemToUse.거래처명] = [];
@@ -863,7 +876,7 @@ export default function AdminOrdersPage() {
     if (selectedKeys.length === 0) return;
     const updated = [...orders];
     updated.forEach((o, i) => {
-      const key = `${o.주문일시}_${o.상품코드}_${o.컬러}`;
+      const key = getOrderKey(o);
       if (selectedKeys.includes(key)) {
         updated[i] = { ...o, 종결여부: 'y' };
       }
@@ -884,10 +897,15 @@ export default function AdminOrdersPage() {
   // Perform actual deletion from local orders state
   const confirmDeleteSelected = () => {
     if (!deleteDialog) return;
+    const selectedSet = new Set(selectedKeys);
+    const removedKeys = orders
+      .filter((order) => selectedSet.has(getOrderKey(order)))
+      .map(getOrderKey);
     const updatedOrders = orders.filter(o => {
-      const key = `${o.주문일시}_${o.상품코드}_${o.컬러}`;
-      return !selectedKeys.includes(key);
+      const key = getOrderKey(o);
+      return !selectedSet.has(key);
     });
+    setDeletedOrderKeys((prev) => uniqueKeys([...prev, ...removedKeys]));
     setOrders(updatedOrders);
     setSelectedKeys([]);
     setDeleteDialog(null);
@@ -900,7 +918,7 @@ export default function AdminOrdersPage() {
     let updatedCount = 0;
     
     updated.forEach((o, i) => {
-      const key = `${o.주문일시}_${o.상품코드}_${o.컬러}`;
+      const key = getOrderKey(o);
       if (selectedKeys.includes(key)) {
         const item = { ...o };
         
@@ -1111,12 +1129,12 @@ export default function AdminOrdersPage() {
           // Sum total amount for this client's pending orders
           const totalPendingAmount = matchingPendingOrders.reduce((sum, o) => sum + (o.금액 || 0), 0);
           
-          const orderKeys = matchingPendingOrders.map(o => `${o.주문일시}_${o.상품코드}_${o.컬러}`);
+          const orderKeys = matchingPendingOrders.map(getOrderKey);
 
           if (totalPendingAmount === dep.amount) {
             // Perfect match! Auto record payment.
             matchingPendingOrders.forEach(o => {
-              const idx = currentOrders.findIndex(co => co.주문일시 === o.주문일시 && co.상품코드 === o.상품코드 && co.컬러 === o.컬러);
+              const idx = findOrderIndexByKey(currentOrders, getOrderKey(o));
               if (idx !== -1) {
                 currentOrders[idx] = {
                   ...currentOrders[idx],
@@ -1165,7 +1183,7 @@ export default function AdminOrdersPage() {
     if (!mismatchDialog) return;
     
     const updated = orders.map(o => {
-      const uniqueKey = `${o.주문일시}_${o.상품코드}_${o.컬러}`;
+      const uniqueKey = getOrderKey(o);
       if (mismatchDialog.orderKeys.includes(uniqueKey)) {
         return {
           ...o,
@@ -1225,7 +1243,7 @@ export default function AdminOrdersPage() {
     return true;
   });
 
-  const filteredKeys = filteredOrders.map(o => `${o.주문일시}_${o.상품코드}_${o.컬러}`);
+  const filteredKeys = filteredOrders.map(getOrderKey);
   const isAllSelected = filteredOrders.length > 0 && filteredKeys.every(k => selectedKeys.includes(k));
 
   const toggleSelectAll = () => {
@@ -1505,19 +1523,15 @@ export default function AdminOrdersPage() {
                   </tr>
                 ) : (
                   filteredOrders.map((order, relativeIdx) => {
-                    const globalIdx = orders.findIndex(o => 
-                      o.주문일시 === order.주문일시 && 
-                      o.상품코드 === order.상품코드 && 
-                      o.컬러 === order.컬러
-                    );
+                    const rowKey = getOrderKey(order);
+                    const globalIdx = findOrderIndexByKey(orders, rowKey);
                     if (globalIdx === -1) return null;
 
                     const isConfirmed = order.주문확인 === 'y';
                     const isPaid = ['입금완료', '주결제', '15일결제', '1달 결제'].includes(order.입금확인 || '');
-                    const rowKey = `${order.주문일시}_${order.상품코드}_${order.컬러}`;
 
                     return (
-                      <tr key={relativeIdx} className="hover:bg-neutral-50/50 transition-colors">
+                      <tr key={rowKey || relativeIdx} className="hover:bg-neutral-50/50 transition-colors">
                         
                         {/* 0. 선택 체크박스 */}
                         <td className="py-2.5 px-3 border-r border-neutral-200 text-center select-none">

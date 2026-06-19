@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readAllOrders, writeAllOrders, readExcelData } from '@/lib/db';
 import { sendTelegramAlert } from '@/lib/telegram';
 import { isAdminAuthenticated } from '@/lib/adminAuth';
-import { isCloudDbEnabled, queryD1 } from '@/lib/cloudflareD1';
-import { readCloudMasterData, readCloudOrders, writeCloudOrders } from '@/lib/cloudData';
+import { isCloudDbEnabled } from '@/lib/cloudflareD1';
+import { deleteCloudOrdersByKeys, readCloudMasterData, readCloudOrders, writeCloudOrders } from '@/lib/cloudData';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +14,35 @@ function orderKey(order: any): string {
     order.상품코드 || '',
     order.컬러 || '',
   ].map((value) => String(value).trim()).join('|');
+}
+
+function uniqueOrderKeys(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  return Array.from(new Set(values.map((value) => String(value || '').trim()).filter(Boolean)));
+}
+
+function mergeOrdersByKey(baseOrders: any[], incomingOrders: any[], deletedOrderKeys: string[]): any[] {
+  const deletedSet = new Set(deletedOrderKeys);
+  const incomingMap = new Map<string, any>();
+
+  incomingOrders.forEach((order) => {
+    const key = orderKey(order);
+    if (!key || deletedSet.has(key)) return;
+    incomingMap.set(key, order);
+  });
+
+  const merged = baseOrders
+    .filter((order) => !deletedSet.has(orderKey(order)))
+    .map((order) => incomingMap.get(orderKey(order)) || order);
+
+  const existingKeys = new Set(merged.map(orderKey));
+  incomingMap.forEach((order, key) => {
+    if (!existingKeys.has(key)) {
+      merged.push(order);
+    }
+  });
+
+  return merged;
 }
 
 export async function GET(request: NextRequest) {
@@ -42,13 +71,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: '관리자 로그인이 필요합니다.' }, { status: 401 });
     }
 
-    const { orders } = await request.json();
+    const body = await request.json();
+    const { orders } = body;
     if (!orders || !Array.isArray(orders)) {
       return NextResponse.json(
         { success: false, message: '올바르지 않은 주문 데이터 목록입니다.' },
         { status: 400 }
       );
     }
+    const deletedOrderKeys = uniqueOrderKeys(body.deletedOrderKeys);
+    const replaceAllOrders = body.replaceAllOrders === true;
 
     const cloudMode = isCloudDbEnabled();
 
@@ -56,7 +88,7 @@ export async function POST(request: NextRequest) {
     const oldOrders = cloudMode ? await readCloudOrders() : readAllOrders();
     const oldOrdersMap = new Map<string, any>();
     oldOrders.forEach(o => {
-      const key = `${o.주문일시}_${o.상품코드}_${o.컬러}`;
+      const key = orderKey(o);
       oldOrdersMap.set(key, o);
     });
 
@@ -74,7 +106,7 @@ export async function POST(request: NextRequest) {
     const processAlerts = new Map<string, any[]>();
 
     orders.forEach(o => {
-      const key = `${o.주문일시}_${o.상품코드}_${o.컬러}`;
+      const key = orderKey(o);
       const old = oldOrdersMap.get(key);
       if (!old) return; // 기존 매칭 건이 없는 경우(새로운 추가 등)는 알림 패스
 
@@ -106,19 +138,30 @@ export async function POST(request: NextRequest) {
 
     // 4. 운영 서버에서는 D1만 갱신한다. 전체 삭제 후 재작성 대신 변경분 upsert + 명시 삭제만 처리한다.
     if (cloudMode) {
-      const incomingKeys = new Set(orders.map(orderKey));
-      const removedOrders = oldOrders.filter((order) => !incomingKeys.has(orderKey(order)));
-
-      for (const order of removedOrders) {
-        await queryD1(
-          'DELETE FROM orders WHERE order_at = ? AND customer_name = ? AND product_code = ? AND color = ?',
-          [order.주문일시 || '', order.거래처명 || '', order.상품코드 || '', order.컬러 || ''],
+      const existingKeys = new Set(oldOrders.map(orderKey));
+      const deleteKeys = deletedOrderKeys.filter((key) => existingKeys.has(key));
+      const maxSafeDelete = Math.max(50, Math.floor(oldOrders.length * 0.5));
+      if (deleteKeys.length > maxSafeDelete && body.confirmLargeDelete !== true) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `주문 ${deleteKeys.length}건 삭제 요청이 감지되어 차단했습니다. 대량 삭제가 맞으면 별도 확인 절차가 필요합니다.`,
+          },
+          { status: 409 }
         );
       }
 
-      await writeCloudOrders(orders, false);
+      if (deleteKeys.length > 0) {
+        await deleteCloudOrdersByKeys(deleteKeys);
+      }
+
+      const deleteSet = new Set(deleteKeys);
+      await writeCloudOrders(orders.filter((order) => !deleteSet.has(orderKey(order))), false);
     } else {
-      const success = writeAllOrders(orders);
+      const nextOrders = replaceAllOrders
+        ? orders
+        : mergeOrdersByKey(oldOrders, orders, deletedOrderKeys);
+      const success = writeAllOrders(nextOrders);
       if (!success) {
         return NextResponse.json(
           { success: false, message: '주문 엑셀(Orders.xlsx) 파일 저장 중 오류가 발생했습니다. 파일이 다른 프로그램에 의해 열려 있는지 확인하세요.' },
