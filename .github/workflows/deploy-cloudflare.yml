@@ -1,0 +1,50 @@
+name: Deploy unmeb2b to Cloudflare
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+      - main
+    paths:
+      - "B2B_Clean_Run/**"
+      - ".github/workflows/deploy-cloudflare.yml"
+
+concurrency:
+  group: unmeb2b-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: B2B_Clean_Run
+    env:
+      CI: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: B2B_Clean_Run/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Build Cloudflare Worker
+        run: npm run cf:build
+
+      - name: Deploy Cloudflare Worker
+        run: npm run cf:deploy

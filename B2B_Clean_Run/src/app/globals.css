@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  --font-noto: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --font-inter: Inter, Arial, sans-serif;
+  --font-outfit: Outfit, Inter, Arial, sans-serif;
+  --font-cinzel: Georgia, "Times New Roman", serif;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-noto), var(--font-inter), sans-serif;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleUp {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.2s ease-out forwards;
+}
+
+.animate-scaleUp {
+  animation: scaleUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Luxury Gold Foil Text Effect */
+.gold-foil-text {
+  font-family: var(--font-cinzel), 'Cinzel', 'Playfair Display', Georgia, serif;
+  background: linear-gradient(
+    135deg,
+    #bf953f 0%,
+    #fcf6ba 25%,
+    #b38728 50%,
+    #fbf5b7 75%,
+    #aa771c 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0px 1px 1px rgba(0, 0, 0, 0.3)) drop-shadow(0px 2px 4px rgba(0, 0, 0, 0.25));
+}
+
+/* Luxury Gold Foil Text for Light Backgrounds (Enhanced Contrast) */
+.gold-foil-light-bg {
+  font-family: var(--font-cinzel), 'Cinzel', 'Playfair Display', Georgia, serif;
+  background: linear-gradient(
+    135deg,
+    #bf953f 0%,
+    #fcf6ba 25%,
+    #b38728 50%,
+    #fbf5b7 75%,
+    #aa771c 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+  filter: 
+    drop-shadow(0px 1px 0px rgba(0, 0, 0, 0.8))
+    drop-shadow(1px 1px 1px rgba(0, 0, 0, 0.5))
+    drop-shadow(0px 2px 3px rgba(0, 0, 0, 0.3));
+}
+
+/* Hide Next.js Development Overlay & Dev Portals */
+nextjs-portal {
+  display: none !important;
+}

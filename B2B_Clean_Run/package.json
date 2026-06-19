@@ -1,0 +1,44 @@
+{
+  "name": "b2b-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build --webpack",
+    "start": "next start",
+    "lint": "eslint",
+    "optimize-images": "node scripts/warm-image-cache.js",
+    "cloudflare:dry-run": "node scripts/cloudflare-sync.js",
+    "cloudflare:sync-images": "node scripts/cloudflare-sync.js --apply --images",
+    "cloudflare:sync-d1": "node scripts/cloudflare-sync.js --apply --d1",
+    "cloudflare:sync-all": "node scripts/cloudflare-sync.js --apply --all",
+    "cf:build": "node node_modules/@opennextjs/cloudflare/dist/cli/index.js build",
+    "cf:preview": "node node_modules/@opennextjs/cloudflare/dist/cli/index.js preview",
+    "cf:deploy": "node node_modules/@opennextjs/cloudflare/dist/cli/index.js deploy",
+    "share": "npx localtunnel --port 3000"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "better-sqlite3": "^12.10.0",
+    "critters": "^0.0.23",
+    "lucide-react": "^1.17.0",
+    "next": "16.2.7",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "sharp": "^0.34.5",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@opennextjs/cloudflare": "^1.19.11",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.7",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "wrangler": "^4.101.0"
+  }
+}

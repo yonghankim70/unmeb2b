@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "unmeb2b",
+  "account_id": "727befa2587daf9a2b160daa08c023b9",
+  "main": ".open-next/worker.js",
+  "workers_dev": true,
+  "compatibility_date": "2026-06-16",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "vars": {
+    "B2B_DB_MODE": "d1",
+    "CF_ACCOUNT_ID": "727befa2587daf9a2b160daa08c023b9",
+    "CF_D1_DATABASE_ID": "722e4c8b-f4da-4c9a-a8ba-343bc8d1ac60",
+    "CF_R2_BUCKET": "unmeb2b-images",
+    "CF_R2_PUBLIC_BASE_URL": "https://pub-6bcee8668c3a45759ba8275c107e83fd.r2.dev",
+    "NEXT_PUBLIC_R2_IMAGE_BASE_URL": "https://pub-6bcee8668c3a45759ba8275c107e83fd.r2.dev",
+    "B2B_BACKUP_TO_Z": "false",
+    "NEXT_PUBLIC_TELEGRAM_URL": "https://t.me/unme802",
+    "NEXT_PUBLIC_COMPANY_PHONE": "010-4481-7802"
+  }
+}
