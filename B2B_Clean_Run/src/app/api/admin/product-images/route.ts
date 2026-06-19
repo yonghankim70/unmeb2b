@@ -6,9 +6,12 @@ import {
   deleteR2Object,
   getDetailImageKey,
   getMainImageKey,
+  getR2CacheSegment,
   getR2PublicUrlForKey,
+  listR2Objects,
   putR2Object,
 } from '@/lib/cloudflareR2';
+import { safeFileName } from '@/lib/pathSafety';
 
 const MAIN_WIDTHS = [480, 720] as const;
 const DETAIL_SOURCE_WIDTH = 1600;
@@ -23,6 +26,70 @@ function isMainImageFileName(fileName: string): boolean {
     || lower === 'folder.jpeg'
     || lower === 'folder.png'
     || lower === 'folder.webp';
+}
+
+function decodeR2KeySegment(segment: string): string {
+  try {
+    return decodeURIComponent(decodeURIComponent(segment));
+  } catch {
+    try {
+      return decodeURIComponent(segment);
+    } catch {
+      return segment;
+    }
+  }
+}
+
+function normalizeImageName(fileName: string): string {
+  return safeFileName(String(fileName || '').trim());
+}
+
+function readProductImageNames(product: Product): string[] {
+  const names = Array.isArray(product.상세이미지목록) ? product.상세이미지목록 : [];
+  const unique: string[] = [];
+  for (const name of names) {
+    const cleanName = normalizeImageName(name);
+    if (cleanName && !unique.includes(cleanName)) unique.push(cleanName);
+  }
+  return unique;
+}
+
+function mergeProductAndStoredImages(productImages: string[], storedImages: string[]): string[] {
+  const storedUnique: string[] = [];
+  for (const name of storedImages) {
+    const cleanName = normalizeImageName(name);
+    if (cleanName && !storedUnique.includes(cleanName)) storedUnique.push(cleanName);
+  }
+
+  if (storedUnique.length === 0) {
+    return productImages;
+  }
+
+  const storedSet = new Set(storedUnique);
+  const ordered = productImages
+    .map(normalizeImageName)
+    .filter((name) => name && storedSet.has(name));
+  for (const storedName of storedUnique) {
+    if (!ordered.includes(storedName)) ordered.push(storedName);
+  }
+  return ordered;
+}
+
+async function listCloudDetailImageNames(week: string, code: string): Promise<string[]> {
+  const prefix = `image-cache/detail/${encodeURIComponent(week)}/${getR2CacheSegment(code)}/`;
+  const keys = await listR2Objects(prefix);
+  const names = new Set<string>();
+
+  for (const key of keys) {
+    if (!key.startsWith(prefix)) continue;
+    const tail = key.slice(prefix.length);
+    const match = tail.match(/^(.+)-(?:1200|1600)\.webp$/i);
+    if (!match) continue;
+    const fileName = normalizeImageName(decodeR2KeySegment(match[1]));
+    if (fileName) names.add(fileName);
+  }
+
+  return [...names].sort((left, right) => left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' }));
 }
 
 async function readCloudProductByCode(code: string): Promise<Product | null> {
@@ -83,6 +150,41 @@ async function deleteDetailImageAssets(week: string, code: string, fileName: str
   ]);
 }
 
+export async function GET(request: NextRequest) {
+  try {
+    if (!(await isAdminAuthenticated())) {
+      return NextResponse.json({ success: false, message: '관리자 로그인이 필요합니다.' }, { status: 401 });
+    }
+
+    if (!isCloudDbEnabled()) {
+      return NextResponse.json({ success: false, message: '외부 운영 모드(D1/R2)에서만 사용할 수 있습니다.' }, { status: 400 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const week = String(searchParams.get('week') || '').trim();
+    const code = String(searchParams.get('code') || '').trim();
+
+    if (!week || !code) {
+      return NextResponse.json({ success: false, message: 'week, code가 필요합니다.' }, { status: 400 });
+    }
+
+    const product = await readCloudProductByCode(code);
+    if (!product) {
+      return NextResponse.json({ success: false, message: '상품 정보를 찾지 못했습니다.' }, { status: 404 });
+    }
+
+    const productImages = readProductImageNames(product);
+    const storedImages = await listCloudDetailImageNames(week, code);
+    return NextResponse.json({
+      success: true,
+      images: mergeProductAndStoredImages(productImages, storedImages),
+    });
+  } catch (error: any) {
+    console.error('[Product Images API] GET Error:', error);
+    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     if (!(await isAdminAuthenticated())) {
@@ -97,9 +199,9 @@ export async function POST(request: NextRequest) {
     const week = String(body?.week || '').trim();
     const code = String(body?.code || '').trim();
     const action = String(body?.action || '').trim();
-    const fileName = String(body?.fileName || '').trim();
+    const fileName = normalizeImageName(String(body?.fileName || '').trim());
     const orderedImages = Array.isArray(body?.orderedImages)
-      ? body.orderedImages.map((item: unknown) => String(item || '').trim()).filter(Boolean)
+      ? body.orderedImages.map((item: unknown) => normalizeImageName(String(item || '').trim())).filter(Boolean)
       : [];
 
     if (!week || !code || !action) {
@@ -111,14 +213,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: '상품 정보를 찾지 못했습니다.' }, { status: 404 });
     }
 
-    const images = Array.isArray(product.상세이미지목록) ? [...product.상세이미지목록] : [];
+    const productImages = readProductImageNames(product);
+    let storedImages: string[] = [];
+    try {
+      storedImages = await listCloudDetailImageNames(week, code);
+    } catch (error) {
+      console.warn('[Product Images API] R2 detail list failed:', error);
+    }
+    const images = mergeProductAndStoredImages(productImages, storedImages);
 
     if (action === 'reorder') {
       if (orderedImages.length === 0) {
         return NextResponse.json({ success: false, message: '정렬할 이미지 목록이 없습니다.' }, { status: 400 });
       }
       const existingSet = new Set(images);
-      const nextImages = orderedImages.filter((name: string) => existingSet.has(name));
+      const nextImages = orderedImages.map(normalizeImageName).filter((name: string) => existingSet.has(name));
       const missing = images.filter((name: string) => !nextImages.includes(name));
       product.상세이미지목록 = [...nextImages, ...missing];
       await writeCloudProduct(product);
@@ -134,6 +243,9 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'set-main') {
+      if (storedImages.length > 0 && !storedImages.includes(fileName)) {
+        return NextResponse.json({ success: false, message: 'R2에 실제 이미지 파일이 없어 대표 지정할 수 없습니다.' }, { status: 404 });
+      }
       const nextImages = [fileName, ...images.filter((name) => name !== fileName)];
       await updateMainImageFromDetail(week, code, fileName);
       product.상세이미지목록 = nextImages;
@@ -147,11 +259,17 @@ export async function POST(request: NextRequest) {
       product.상세이미지목록 = nextImages;
       await writeCloudProduct(product);
 
+      let warning = '';
       if (nextImages.length > 0 && (images[0] === fileName || isMainImageFileName(fileName))) {
-        await updateMainImageFromDetail(week, code, nextImages[0]);
+        try {
+          await updateMainImageFromDetail(week, code, nextImages[0]);
+        } catch (error: any) {
+          warning = `대표 이미지 갱신은 실패했습니다: ${error.message}`;
+          console.warn('[Product Images API] Main image refresh failed after delete:', error);
+        }
       }
 
-      return NextResponse.json({ success: true, images: product.상세이미지목록, deleted: fileName });
+      return NextResponse.json({ success: true, images: product.상세이미지목록, deleted: fileName, warning });
     }
 
     return NextResponse.json({ success: false, message: '지원하지 않는 action입니다.' }, { status: 400 });

@@ -98,7 +98,6 @@ export function prefetchProductDetails(product: Product): Promise<string[]> {
   const embeddedImages = getProductImageList(product);
   if (embeddedImages.length > 0) {
     preloadDetailImages(product, embeddedImages);
-    return Promise.resolve(embeddedImages);
   }
 
   const key = getDetailCacheKey(product);
@@ -115,7 +114,7 @@ export function prefetchProductDetails(product: Product): Promise<string[]> {
     }
   }
 
-  const promise = fetch(getProductDetailsUrl(product), { cache: 'force-cache' })
+  const promise = fetch(getProductDetailsUrl(product), { cache: 'no-store' })
     .then((res) => res.json())
     .then((data) => {
       const images = data?.success ? normalizeImages(data.images) : [];

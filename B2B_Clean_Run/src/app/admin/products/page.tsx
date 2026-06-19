@@ -904,6 +904,28 @@ export default function AdminPage() {
   const [newSeasonName, setNewSeasonName] = useState('');
   const [newGradeName, setNewGradeName] = useState('');
 
+  const applyProductImagesLocally = (code: string, images: string[]) => {
+    const cleanImages = images.map((name) => String(name || '').trim()).filter(Boolean);
+    setProducts(prev => prev.map((product) => {
+      const productCode = String(product.임시코드 || product.상품명 || '').trim();
+      if (productCode !== code) return product;
+      return {
+        ...product,
+        상세이미지목록: cleanImages,
+      };
+    }));
+    setManagingProduct(prev => {
+      if (!prev) return prev;
+      const productCode = String(prev.임시코드 || prev.상품명 || '').trim();
+      if (productCode !== code) return prev;
+      return {
+        ...prev,
+        상세이미지목록: cleanImages,
+      };
+    });
+    setManagingImages(cleanImages);
+  };
+
   const handleImageUpload = async (week: string, code: string, files: File[]) => {
     const key = `${week}-${code}`;
     setUploadingState(prev => ({ ...prev, [key]: true }));
@@ -939,7 +961,9 @@ export default function AdminPage() {
       if (data.success) {
         const uploadedCount = Number(data.uploadedCount || expectedUploadedFiles.length || 0);
         const mainMessage = (data.updatedMain || expectedMainUpdated) ? '\n대표 이미지도 함께 갱신되었습니다.' : '';
-        if (managingProduct && (managingProduct.임시코드 || managingProduct.상품명) === code) {
+        if (Array.isArray(data.images)) {
+          applyProductImagesLocally(code, data.images);
+        } else if (managingProduct && (managingProduct.임시코드 || managingProduct.상품명) === code) {
           const uploadedFiles = Array.isArray(data.uploadedFiles) ? data.uploadedFiles : expectedUploadedFiles;
           setManagingImages((prev) => {
             const merged = [...prev];
@@ -952,7 +976,6 @@ export default function AdminPage() {
         }
         alert(`${code} 상품의 이미지 ${uploadedCount}개가 업로드되었습니다.${mainMessage}`);
         setCacheBuster(Date.now());
-        await loadData();
       } else {
         alert(`업로드 실패: ${data?.message || `서버 오류 (${res.status})`}`);
       }
@@ -2167,11 +2190,6 @@ export default function AdminPage() {
     }
   };
 
-  const openImageManager = (product: Product) => {
-    setManagingProduct(product);
-    setManagingImages(Array.isArray(product.상세이미지목록) ? [...product.상세이미지목록] : []);
-  };
-
   const closeImageManager = () => {
     if (imageActionLoading) return;
     setManagingProduct(null);
@@ -2181,9 +2199,41 @@ export default function AdminPage() {
     setDragOverImageName(null);
   };
 
+  const refreshManagedImages = async (product: Product) => {
+    if (isLocalAdminHost) return;
+    const code = String(product.임시코드 || product.상품명 || '').trim();
+    const week = String(product.주차 || '').trim();
+    if (!code || !week) return;
+
+    try {
+      const res = await fetch(`/api/admin/product-images?week=${encodeURIComponent(week)}&code=${encodeURIComponent(code)}`, {
+        cache: 'no-store',
+      });
+      const rawText = await res.text();
+      let data: any = null;
+      try {
+        data = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        throw new Error(rawText || `서버 응답 해석 실패 (${res.status})`);
+      }
+      if (data?.success && Array.isArray(data.images)) {
+        applyProductImagesLocally(code, data.images);
+      }
+    } catch (error) {
+      console.warn('이미지 목록 새로고침 실패:', error);
+    }
+  };
+
+  const openImageManager = (product: Product) => {
+    setManagingProduct(product);
+    setManagingImages(Array.isArray(product.상세이미지목록) ? [...product.상세이미지목록] : []);
+    void refreshManagedImages(product);
+  };
+
   const runImageAction = async (action: 'set-main' | 'delete' | 'reorder', payload: Record<string, unknown>) => {
     if (!managingProduct) return;
     setImageActionLoading(true);
+    const code = String(managingProduct.임시코드 || managingProduct.상품명 || '').trim();
     try {
       const res = await fetch('/api/admin/product-images', {
         method: 'POST',
@@ -2207,9 +2257,11 @@ export default function AdminPage() {
         return;
       }
       const nextImages = Array.isArray(data.images) ? data.images : [];
-      setManagingImages(nextImages);
+      applyProductImagesLocally(code, nextImages);
       setCacheBuster(Date.now());
-      await loadData();
+      if (data.warning) {
+        alert(data.warning);
+      }
     } catch (error: any) {
       alert(`이미지 반영 중 오류가 발생했습니다: ${error.message}`);
     } finally {
@@ -3219,6 +3271,19 @@ export default function AdminPage() {
                 <div className="text-sm font-semibold">이미지 추가 업로드</div>
                 <div className="text-xs mt-1 text-neutral-500">
                   파일 선택 또는 여기로 끌어놓기
+                </div>
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    disabled={imageActionLoading}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!imageActionLoading) imageUploadInputRef.current?.click();
+                    }}
+                    className="text-xs border border-neutral-300 bg-white px-4 py-2 text-neutral-800 hover:bg-neutral-100 disabled:opacity-40"
+                  >
+                    파일 선택
+                  </button>
                 </div>
                 <input
                   ref={imageUploadInputRef}

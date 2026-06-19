@@ -6,12 +6,12 @@ import { getDbPath } from '@/lib/db';
 import { formatProduct } from '@/lib/dataTypes';
 import { isCloudDbEnabled, queryD1 } from '@/lib/cloudflareD1';
 import { getR2CacheSegment, listR2Objects } from '@/lib/cloudflareR2';
-import { resolveInside } from '@/lib/pathSafety';
+import { resolveInside, safeFileName } from '@/lib/pathSafety';
 
 export const dynamic = 'force-dynamic';
 
 const DETAILS_CACHE_TTL_MS = 5 * 60 * 1000;
-const DETAILS_CACHE_CONTROL = 'public, max-age=300, stale-while-revalidate=3600';
+const DETAILS_CACHE_CONTROL = 'no-store';
 
 interface ProductDetailsResult {
   images: string[];
@@ -67,6 +67,27 @@ function decodeTwice(value: string): string {
 
 function sortImageNames(images: string[]): string[] {
   return [...images].sort((left, right) => left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' }));
+}
+
+function mergeProductAndStoredImages(productImages: string[], storedImages: string[]): string[] {
+  const storedUnique: string[] = [];
+  for (const name of storedImages) {
+    const cleanName = safeFileName(String(name || '').trim());
+    if (cleanName && !storedUnique.includes(cleanName)) storedUnique.push(cleanName);
+  }
+
+  if (storedUnique.length === 0) {
+    return sortImageNames(productImages.map((name) => safeFileName(String(name || '').trim())).filter(Boolean));
+  }
+
+  const storedSet = new Set(storedUnique);
+  const ordered = productImages
+    .map((name) => safeFileName(String(name || '').trim()))
+    .filter((name) => name && storedSet.has(name));
+  for (const storedName of storedUnique) {
+    if (!ordered.includes(storedName)) ordered.push(storedName);
+  }
+  return ordered;
 }
 
 async function readCloudDetailImageNames(week: string, code: string): Promise<string[]> {
@@ -183,7 +204,13 @@ export async function GET(request: NextRequest) {
       const embeddedImages = Array.isArray(product.상세이미지목록)
         ? product.상세이미지목록.map((imageName) => String(imageName || '').trim()).filter(Boolean)
         : [];
-      const images = embeddedImages.length > 0 ? sortImageNames(embeddedImages) : await readCloudDetailImageNames(week, code);
+      let storedImages: string[] = [];
+      try {
+        storedImages = await readCloudDetailImageNames(week, code);
+      } catch (error) {
+        console.warn('[ProductDetails API] R2 detail image list failed:', error);
+      }
+      const images = mergeProductAndStoredImages(embeddedImages, storedImages);
 
       return NextResponse.json(
         {

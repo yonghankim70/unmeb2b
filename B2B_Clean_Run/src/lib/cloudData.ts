@@ -11,7 +11,7 @@ import {
   Product,
   readGlobalSettings,
 } from '@/lib/db';
-import { isCloudDbEnabled, queryD1 } from '@/lib/cloudflareD1';
+import { batchD1, isCloudDbEnabled, queryD1 } from '@/lib/cloudflareD1';
 
 export interface CloudMasterData {
   customers: Customer[];
@@ -45,6 +45,49 @@ const DEFAULT_SETTINGS: GlobalSettings = {
 
 type PayloadRow = { payload?: string };
 type SettingRow = { key: string; value: string };
+type D1WriteQuery = { sql: string; params?: unknown[] };
+
+const PRODUCT_INSERT_COLUMNS = [
+  'code',
+  'week',
+  'name',
+  'category',
+  'item',
+  'color',
+  'price',
+  'exposure',
+  'owner_cart_visible',
+  'payload',
+  'updated_at',
+] as const;
+
+const CUSTOMER_INSERT_COLUMNS = ['name', 'grade', 'owner_cart_allowed', 'login_blocked', 'payload', 'updated_at'] as const;
+const ORDER_INSERT_COLUMNS = ['id', 'customer_name', 'product_code', 'color', 'quantity', 'amount', 'order_at', 'payload', 'updated_at'] as const;
+const PAYMENT_INSERT_COLUMNS = ['id', 'customer_name', 'payment_at', 'amount', 'payload', 'updated_at'] as const;
+const CART_INSERT_COLUMNS = ['customerName', 'productCode', 'color', 'quantity', 'category', 'updatedAt'] as const;
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function valuesPlaceholders(rowCount: number, columnCount: number): string {
+  const row = `(${Array.from({ length: columnCount }, () => '?').join(', ')})`;
+  return Array.from({ length: rowCount }, () => row).join(', ');
+}
+
+function uniqueNonEmpty(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => String(value || '').trim()).filter(Boolean)));
+}
+
+async function runWriteBatch(queries: D1WriteQuery[], chunkSize = 20): Promise<void> {
+  for (const chunk of chunkArray(queries, chunkSize)) {
+    await batchD1(chunk);
+  }
+}
 
 function parsePayload<T>(row: PayloadRow, fallback: T): T {
   if (!row.payload) return fallback;
@@ -66,75 +109,95 @@ function orderId(order: CustomerOrder, index = 0): string {
 let ensureCloudSchemaPromise: Promise<void> | null = null;
 
 async function runEnsureCloudSchema(): Promise<void> {
-  await queryD1(`CREATE TABLE IF NOT EXISTS products (
-    code TEXT PRIMARY KEY,
-    week TEXT,
-    name TEXT,
-    category TEXT,
-    item TEXT,
-    color TEXT,
-    price REAL,
-    exposure TEXT,
-    owner_cart_visible TEXT,
-    payload TEXT,
-    updated_at TEXT
-  )`);
-  await queryD1(`CREATE TABLE IF NOT EXISTS customers (
-    name TEXT PRIMARY KEY,
-    grade TEXT,
-    owner_cart_allowed TEXT,
-    login_blocked TEXT,
-    payload TEXT,
-    updated_at TEXT
-  )`);
-  await queryD1(`CREATE TABLE IF NOT EXISTS orders (
-    id TEXT PRIMARY KEY,
-    customer_name TEXT,
-    product_code TEXT,
-    color TEXT,
-    quantity INTEGER,
-    amount REAL,
-    order_at TEXT,
-    payload TEXT,
-    updated_at TEXT
-  )`);
-  await queryD1(`CREATE TABLE IF NOT EXISTS categories (
-    name TEXT PRIMARY KEY,
-    payload TEXT,
-    updated_at TEXT
-  )`);
-  await queryD1(`CREATE TABLE IF NOT EXISTS items (
-    name TEXT PRIMARY KEY,
-    payload TEXT,
-    updated_at TEXT
-  )`);
-  await queryD1(`CREATE TABLE IF NOT EXISTS colors (
-    name TEXT PRIMARY KEY,
-    payload TEXT,
-    updated_at TEXT
-  )`);
-  await queryD1(`CREATE TABLE IF NOT EXISTS global_settings (
-    key TEXT PRIMARY KEY,
-    value TEXT,
-    updated_at TEXT
-  )`);
-  await queryD1(`CREATE TABLE IF NOT EXISTS payments (
-    id TEXT PRIMARY KEY,
-    customer_name TEXT,
-    payment_at TEXT,
-    amount REAL,
-    payload TEXT,
-    updated_at TEXT
-  )`);
-  await queryD1(`CREATE TABLE IF NOT EXISTS cart_snapshots (
-    customerName TEXT,
-    productCode TEXT,
-    color TEXT,
-    quantity INTEGER,
-    category TEXT,
-    updatedAt TEXT,
-    PRIMARY KEY (customerName, productCode, color)
-  )`);
+  await batchD1([
+    {
+      sql: `CREATE TABLE IF NOT EXISTS products (
+        code TEXT PRIMARY KEY,
+        week TEXT,
+        name TEXT,
+        category TEXT,
+        item TEXT,
+        color TEXT,
+        price REAL,
+        exposure TEXT,
+        owner_cart_visible TEXT,
+        payload TEXT,
+        updated_at TEXT
+      )`,
+    },
+    {
+      sql: `CREATE TABLE IF NOT EXISTS customers (
+        name TEXT PRIMARY KEY,
+        grade TEXT,
+        owner_cart_allowed TEXT,
+        login_blocked TEXT,
+        payload TEXT,
+        updated_at TEXT
+      )`,
+    },
+    {
+      sql: `CREATE TABLE IF NOT EXISTS orders (
+        id TEXT PRIMARY KEY,
+        customer_name TEXT,
+        product_code TEXT,
+        color TEXT,
+        quantity INTEGER,
+        amount REAL,
+        order_at TEXT,
+        payload TEXT,
+        updated_at TEXT
+      )`,
+    },
+    {
+      sql: `CREATE TABLE IF NOT EXISTS categories (
+        name TEXT PRIMARY KEY,
+        payload TEXT,
+        updated_at TEXT
+      )`,
+    },
+    {
+      sql: `CREATE TABLE IF NOT EXISTS items (
+        name TEXT PRIMARY KEY,
+        payload TEXT,
+        updated_at TEXT
+      )`,
+    },
+    {
+      sql: `CREATE TABLE IF NOT EXISTS colors (
+        name TEXT PRIMARY KEY,
+        payload TEXT,
+        updated_at TEXT
+      )`,
+    },
+    {
+      sql: `CREATE TABLE IF NOT EXISTS global_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at TEXT
+      )`,
+    },
+    {
+      sql: `CREATE TABLE IF NOT EXISTS payments (
+        id TEXT PRIMARY KEY,
+        customer_name TEXT,
+        payment_at TEXT,
+        amount REAL,
+        payload TEXT,
+        updated_at TEXT
+      )`,
+    },
+    {
+      sql: `CREATE TABLE IF NOT EXISTS cart_snapshots (
+        customerName TEXT,
+        productCode TEXT,
+        color TEXT,
+        quantity INTEGER,
+        category TEXT,
+        updatedAt TEXT,
+        PRIMARY KEY (customerName, productCode, color)
+      )`,
+    },
+  ]);
 }
 
 export async function ensureCloudSchema(): Promise<void> {
@@ -156,17 +219,15 @@ export async function readCloudProducts(): Promise<Product[]> {
 
 export async function writeCloudProducts(products: Product[], replaceAll = false): Promise<void> {
   await ensureCloudSchema();
+  const queries: D1WriteQuery[] = [];
   if (replaceAll) {
-    await queryD1('DELETE FROM products');
+    queries.push({ sql: 'DELETE FROM products' });
   }
   const now = new Date().toISOString();
-  for (const product of products) {
+  const rows = products.reduce<unknown[][]>((acc, product) => {
     const code = productCode(product);
-    if (!code) continue;
-    await queryD1(
-      `INSERT OR REPLACE INTO products (code, week, name, category, item, color, price, exposure, owner_cart_visible, payload, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
+    if (!code) return acc;
+    acc.push([
         code,
         product.주차 || '',
         product.상품명 || code,
@@ -178,19 +239,32 @@ export async function writeCloudProducts(products: Product[], replaceAll = false
         product.쥔장장바구니노출 || 'y',
         JSON.stringify(product),
         now,
-      ],
-    );
+    ]);
+    return acc;
+  }, []);
+
+  for (const chunk of chunkArray(rows, 40)) {
+    queries.push({
+      sql: `INSERT OR REPLACE INTO products (${PRODUCT_INSERT_COLUMNS.join(', ')}) VALUES ${valuesPlaceholders(chunk.length, PRODUCT_INSERT_COLUMNS.length)}`,
+      params: chunk.flat(),
+    });
   }
+
+  await runWriteBatch(queries);
 }
 
 export async function deleteCloudProducts(productCodes: string[]): Promise<void> {
   await ensureCloudSchema();
 
-  for (const productCodeValue of productCodes) {
-    const code = String(productCodeValue || '').trim();
-    if (!code) continue;
-    await queryD1('DELETE FROM products WHERE code = ?', [code]);
+  const codes = uniqueNonEmpty(productCodes);
+  const queries: D1WriteQuery[] = [];
+  for (const chunk of chunkArray(codes, 80)) {
+    queries.push({
+      sql: `DELETE FROM products WHERE code IN (${chunk.map(() => '?').join(', ')})`,
+      params: chunk,
+    });
   }
+  await runWriteBatch(queries);
 }
 
 export async function readCloudCustomers(): Promise<Customer[]> {
@@ -212,31 +286,40 @@ export async function readCloudCustomers(): Promise<Customer[]> {
 
 export async function writeCloudCustomers(customers: Customer[], replaceAll = false): Promise<void> {
   await ensureCloudSchema();
-  const existingCountRows = await queryD1<{ count: number }>('SELECT COUNT(*) as count FROM customers');
-  const existingCount = Number(existingCountRows[0]?.count || 0);
-  if (replaceAll && existingCount >= 8 && customers.length <= Math.floor(existingCount * 0.6) && existingCount - customers.length >= 5) {
-    throw new Error(`거래처 저장이 차단되었습니다. 기존 ${existingCount}개에서 ${customers.length}개로 급감하는 전체 덮어쓰기입니다.`);
-  }
   if (replaceAll) {
-    await queryD1('DELETE FROM customers');
+    const existingCountRows = await queryD1<{ count: number }>('SELECT COUNT(*) as count FROM customers');
+    const existingCount = Number(existingCountRows[0]?.count || 0);
+    if (existingCount >= 8 && customers.length <= Math.floor(existingCount * 0.6) && existingCount - customers.length >= 5) {
+      throw new Error(`거래처 저장이 차단되었습니다. 기존 ${existingCount}개에서 ${customers.length}개로 급감하는 전체 덮어쓰기입니다.`);
+    }
+  }
+  const queries: D1WriteQuery[] = [];
+  if (replaceAll) {
+    queries.push({ sql: 'DELETE FROM customers' });
   }
   const now = new Date().toISOString();
-  for (const customer of customers) {
+  const rows = customers.reduce<unknown[][]>((acc, customer) => {
     const name = String(customer.거래처명 || '').trim();
-    if (!name) continue;
-    await queryD1(
-      `INSERT OR REPLACE INTO customers (name, grade, owner_cart_allowed, login_blocked, payload, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [
+    if (!name) return acc;
+    acc.push([
         name,
         customer.거래처등급 || '',
         customer.쥔장장바구니허락 || 'n',
         customer.로그인차단 || 'n',
         JSON.stringify(customer),
         now,
-      ],
-    );
+    ]);
+    return acc;
+  }, []);
+
+  for (const chunk of chunkArray(rows, 80)) {
+    queries.push({
+      sql: `INSERT OR REPLACE INTO customers (${CUSTOMER_INSERT_COLUMNS.join(', ')}) VALUES ${valuesPlaceholders(chunk.length, CUSTOMER_INSERT_COLUMNS.length)}`,
+      params: chunk.flat(),
+    });
   }
+
+  await runWriteBatch(queries);
 }
 
 export async function readCloudOrders(): Promise<CustomerOrder[]> {
@@ -247,16 +330,14 @@ export async function readCloudOrders(): Promise<CustomerOrder[]> {
 
 export async function writeCloudOrders(orders: CustomerOrder[], replaceAll = true): Promise<void> {
   await ensureCloudSchema();
+  const queries: D1WriteQuery[] = [];
   if (replaceAll) {
-    await queryD1('DELETE FROM orders');
+    queries.push({ sql: 'DELETE FROM orders' });
   }
   const now = new Date().toISOString();
-  for (const [index, order] of orders.entries()) {
+  const rows = orders.map((order, index) => {
     const id = orderId(order, index);
-    await queryD1(
-      `INSERT OR REPLACE INTO orders (id, customer_name, product_code, color, quantity, amount, order_at, payload, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
+    return [
         id,
         order.거래처명 || '',
         order.상품코드 || '',
@@ -266,9 +347,17 @@ export async function writeCloudOrders(orders: CustomerOrder[], replaceAll = tru
         order.주문일시 || '',
         JSON.stringify(order),
         now,
-      ],
-    );
+      ];
+  });
+
+  for (const chunk of chunkArray(rows, 60)) {
+    queries.push({
+      sql: `INSERT OR REPLACE INTO orders (${ORDER_INSERT_COLUMNS.join(', ')}) VALUES ${valuesPlaceholders(chunk.length, ORDER_INSERT_COLUMNS.length)}`,
+      params: chunk.flat(),
+    });
   }
+
+  await runWriteBatch(queries);
 }
 
 export async function readCloudOrdersByCustomer(customerName: string): Promise<CustomerOrder[]> {
@@ -285,23 +374,28 @@ export async function readCloudPayments(): Promise<PaymentLog[]> {
 
 export async function writeCloudPayments(payments: PaymentLog[]): Promise<void> {
   await ensureCloudSchema();
-  await queryD1('DELETE FROM payments');
+  const queries: D1WriteQuery[] = [{ sql: 'DELETE FROM payments' }];
   const now = new Date().toISOString();
-  for (const [index, payment] of payments.entries()) {
+  const rows = payments.map((payment, index) => {
     const id = `${payment.입금일자 || ''}-${payment.거래처명 || ''}-${payment.입금금액 || 0}-${index}`;
-    await queryD1(
-      `INSERT OR REPLACE INTO payments (id, customer_name, payment_at, amount, payload, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [
+    return [
         id,
         payment.거래처명 || '',
         payment.입금일자 || '',
         Number(payment.입금금액 || 0),
         JSON.stringify(payment),
         now,
-      ],
-    );
+      ];
+  });
+
+  for (const chunk of chunkArray(rows, 80)) {
+    queries.push({
+      sql: `INSERT OR REPLACE INTO payments (${PAYMENT_INSERT_COLUMNS.join(', ')}) VALUES ${valuesPlaceholders(chunk.length, PAYMENT_INSERT_COLUMNS.length)}`,
+      params: chunk.flat(),
+    });
   }
+
+  await runWriteBatch(queries);
 }
 
 export async function readCloudCartSnapshots(): Promise<CartSnapshotItem[]> {
@@ -313,30 +407,38 @@ export async function writeCloudCartSnapshot(customerName: string, items: Omit<C
   await ensureCloudSchema();
   const trimmedCustomerName = customerName.trim();
   const updatedAt = new Date().toISOString();
-  await queryD1('DELETE FROM cart_snapshots WHERE customerName = ?', [trimmedCustomerName]);
-  for (const item of items) {
+  const queries: D1WriteQuery[] = [{ sql: 'DELETE FROM cart_snapshots WHERE customerName = ?', params: [trimmedCustomerName] }];
+  const rows = items.reduce<unknown[][]>((acc, item) => {
     const productCode = String(item.productCode || '').trim();
     const color = String(item.color || '').trim();
     const quantity = Number(item.quantity || 0);
-    if (!trimmedCustomerName || !productCode || quantity <= 0) continue;
-    await queryD1(
-      `INSERT OR REPLACE INTO cart_snapshots (customerName, productCode, color, quantity, category, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [trimmedCustomerName, productCode, color, Math.trunc(quantity), item.category || '', updatedAt],
-    );
+    if (!trimmedCustomerName || !productCode || quantity <= 0) return acc;
+    acc.push([trimmedCustomerName, productCode, color, Math.trunc(quantity), item.category || '', updatedAt]);
+    return acc;
+  }, []);
+
+  for (const chunk of chunkArray(rows, 80)) {
+    queries.push({
+      sql: `INSERT OR REPLACE INTO cart_snapshots (${CART_INSERT_COLUMNS.join(', ')}) VALUES ${valuesPlaceholders(chunk.length, CART_INSERT_COLUMNS.length)}`,
+      params: chunk.flat(),
+    });
   }
+
+  await runWriteBatch(queries);
 }
 
 export async function clearCloudOrderedCartSnapshotItems(customerName: string, items: Array<{ productCode: string; color: string }>): Promise<void> {
   await ensureCloudSchema();
   const trimmedCustomerName = customerName.trim();
-  for (const item of items) {
-    await queryD1('DELETE FROM cart_snapshots WHERE customerName = ? AND productCode = ? AND color = ?', [
+  const queries = items.map((item) => ({
+    sql: 'DELETE FROM cart_snapshots WHERE customerName = ? AND productCode = ? AND color = ?',
+    params: [
       trimmedCustomerName,
       item.productCode,
       item.color,
-    ]);
-  }
+    ],
+  }));
+  await runWriteBatch(queries);
 }
 
 export async function readCloudGlobalSettings(): Promise<GlobalSettings> {
@@ -381,42 +483,48 @@ export async function readCloudMasterData(): Promise<CloudMasterData> {
 
 export async function writeCloudCategories(categories: CategoryMaster[]): Promise<void> {
   await ensureCloudSchema();
-  await queryD1('DELETE FROM categories');
+  const queries: D1WriteQuery[] = [{ sql: 'DELETE FROM categories' }];
   const now = new Date().toISOString();
-  for (const category of categories) {
-    if (!category.카테고리) continue;
-    await queryD1('INSERT OR REPLACE INTO categories (name, payload, updated_at) VALUES (?, ?, ?)', [
-      category.카테고리,
-      JSON.stringify(category),
-      now,
-    ]);
+  const rows = categories
+    .filter((category) => Boolean(category.카테고리))
+    .map((category) => [category.카테고리, JSON.stringify(category), now]);
+  for (const chunk of chunkArray(rows, 120)) {
+    queries.push({
+      sql: `INSERT OR REPLACE INTO categories (name, payload, updated_at) VALUES ${valuesPlaceholders(chunk.length, 3)}`,
+      params: chunk.flat(),
+    });
   }
+  await runWriteBatch(queries);
 }
 
 export async function writeCloudItems(items: ItemMaster[]): Promise<void> {
   await ensureCloudSchema();
-  await queryD1('DELETE FROM items');
+  const queries: D1WriteQuery[] = [{ sql: 'DELETE FROM items' }];
   const now = new Date().toISOString();
-  for (const item of items) {
-    if (!item.아이템) continue;
-    await queryD1('INSERT OR REPLACE INTO items (name, payload, updated_at) VALUES (?, ?, ?)', [
-      item.아이템,
-      JSON.stringify(item),
-      now,
-    ]);
+  const rows = items
+    .filter((item) => Boolean(item.아이템))
+    .map((item) => [item.아이템, JSON.stringify(item), now]);
+  for (const chunk of chunkArray(rows, 120)) {
+    queries.push({
+      sql: `INSERT OR REPLACE INTO items (name, payload, updated_at) VALUES ${valuesPlaceholders(chunk.length, 3)}`,
+      params: chunk.flat(),
+    });
   }
+  await runWriteBatch(queries);
 }
 
 export async function writeCloudColors(colors: ColorMaster[]): Promise<void> {
   await ensureCloudSchema();
-  await queryD1('DELETE FROM colors');
+  const queries: D1WriteQuery[] = [{ sql: 'DELETE FROM colors' }];
   const now = new Date().toISOString();
-  for (const color of colors) {
-    if (!color.컬러) continue;
-    await queryD1('INSERT OR REPLACE INTO colors (name, payload, updated_at) VALUES (?, ?, ?)', [
-      color.컬러,
-      JSON.stringify(color),
-      now,
-    ]);
+  const rows = colors
+    .filter((color) => Boolean(color.컬러))
+    .map((color) => [color.컬러, JSON.stringify(color), now]);
+  for (const chunk of chunkArray(rows, 120)) {
+    queries.push({
+      sql: `INSERT OR REPLACE INTO colors (name, payload, updated_at) VALUES ${valuesPlaceholders(chunk.length, 3)}`,
+      params: chunk.flat(),
+    });
   }
+  await runWriteBatch(queries);
 }

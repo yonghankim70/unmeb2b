@@ -208,6 +208,7 @@ async function uploadCloudPreparedProductImages(
     uploadedNames: [...uploadedNames],
     updatedMain: mainUpdated,
     totalCount: uploadedNames.size,
+    images: latestProduct.상세이미지목록,
   };
 }
 
@@ -257,6 +258,7 @@ export async function POST(request: NextRequest) {
         uploadedFiles: result.uploadedNames,
         uploadedCount: result.totalCount,
         updatedMain: result.updatedMain,
+        images: result.images,
       });
     }
 
