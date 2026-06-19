@@ -442,8 +442,8 @@ export default function ProductDetailModal({
                 </div>
               ) : (
                 displayImages.map((imgName, index) => {
-                  const shouldUseOptimizedImage = index < OPTIMIZED_DETAIL_IMAGE_COUNT;
-                  const cachedFileUrl = shouldUseOptimizedImage ? getCachedDetailImageUrl(product, imgName) : getImageUrl(product, imgName);
+                  const shouldUseResponsiveSrcSet = index < OPTIMIZED_DETAIL_IMAGE_COUNT;
+                  const cachedFileUrl = getCachedDetailImageUrl(product, imgName);
                   const apiFileUrl = getImageUrl(product, imgName);
                   const ext = imgName.toLowerCase();
                   const isVideo = ext.endsWith('.mp4') || ext.endsWith('.webm');
@@ -459,7 +459,7 @@ export default function ProductDetailModal({
                     <img
                       key={imgName}
                       src={cachedFileUrl}
-                      srcSet={shouldUseOptimizedImage ? getOptimizedDetailImageSrcSet(product, imgName) : undefined}
+                      srcSet={shouldUseResponsiveSrcSet ? getOptimizedDetailImageSrcSet(product, imgName) : undefined}
                       sizes="(max-width: 768px) 100vw, 65vw"
                       alt=""
                       className="w-full h-auto object-contain rounded-md shadow-sm"

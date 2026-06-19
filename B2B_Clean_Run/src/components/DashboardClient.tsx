@@ -15,6 +15,12 @@ import {
   preloadMainProductImages,
   useImageFallbacks
 } from '@/lib/imageUrls';
+import {
+  getProductMainCategories,
+  isOwnerCartAllowed,
+  shouldShowOwnerCartProduct,
+  shouldShowProduct,
+} from '@/lib/productVisibility';
 import { ShoppingBag, LogOut, Award, Sparkles, Plus, Crown, Phone, MessageSquare, X } from 'lucide-react';
 
 interface DashboardClientProps {
@@ -30,6 +36,14 @@ interface DashboardClientProps {
 
 const INITIAL_PRODUCT_RENDER_COUNT = 1000;
 const PRODUCT_RENDER_CHUNK = 1000;
+
+function resetStorefrontScroll() {
+  if (typeof window === 'undefined') return;
+  const scrollTop = () => window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  scrollTop();
+  window.requestAnimationFrame(scrollTop);
+  window.setTimeout(scrollTop, 80);
+}
 
 export function getGradeLabel(grade?: string | null): string {
   if (!grade) return '비회원';
@@ -99,106 +113,6 @@ export function resolveColorHex(colorName: string): string {
   return '#e5e5e5';
 }
 
-export function shouldShowProduct(product: Product, session?: { customerName: string; discountGrade: string; isAdmin?: boolean } | null): boolean {
-  // 노출제외(노출제외 컬럼) 필터링 우선 수행
-  if (session && product.노출제외) {
-    const myName = String(session.customerName || '').trim().toLowerCase();
-    if (myName) {
-      const excludedCustomers = String(product.노출제외)
-        .split(',')
-        .map(s => s.trim().toLowerCase());
-      if (excludedCustomers.includes(myName)) {
-        return false;
-      }
-    }
-  }
-
-  const exposure = String(product.노출여부 || '').trim().toLowerCase();
-
-  // If blank/empty, default to visible (exposed to all) for backward compatibility
-  if (exposure === '') {
-    return true;
-  }
-
-  // 'n' -> Non-exposed
-  if (exposure === 'n') {
-    return false;
-  }
-
-  // 'y' -> Exposed to all
-  if (exposure === 'y') {
-    return true;
-  }
-
-  if (!session) {
-    return true;
-  }
-
-  const myGrade = String(session.discountGrade || 'C').trim().toLowerCase();
-  const myName = String(session.customerName || '').trim().toLowerCase();
-  
-  // 특정 거래처 다중 지정 및 등급 노출 처리를 위해 쉼표로 분리하여 확인합니다.
-  const allowedItems = exposure.split(',').map(item => item.trim().toLowerCase());
-  
-  // 로그인한 고객의 접속 등급(a, b, c 등)이 포함되어 있으면 노출
-  if (allowedItems.includes(myGrade)) {
-    return true;
-  }
-
-  // 로그인한 고객의 업체명(예: 서울상사)이 포함되어 있으면 노출
-  if (allowedItems.includes(myName)) {
-    return true;
-  }
-
-  return false;
-}
-
-export function isOwnerCartAllowed(session?: { 쥔장장바구니허락?: string; isAdmin?: boolean } | null): boolean {
-  if (session?.isAdmin) {
-    return true;
-  }
-  return String(session?.쥔장장바구니허락 || 'n').trim().toLowerCase() === 'y';
-}
-
-function hasExposureHistory(product: Product): boolean {
-  return String(product.업로드일자 || '').trim() !== '';
-}
-
-function isOwnerCartCandidate(product: Product): boolean {
-  const exposure = String(product.노출여부 || '').trim().toLowerCase();
-  return (exposure === 'n' || exposure === '') && !hasExposureHistory(product);
-}
-
-export function shouldShowOwnerCartProduct(
-  product: Product,
-  session?: { customerName: string; discountGrade: string; 쥔장장바구니허락?: string; isAdmin?: boolean } | null
-): boolean {
-  if (!isOwnerCartAllowed(session)) {
-    return false;
-  }
-
-  if (String(product.쥔장장바구니노출 || 'y').trim().toLowerCase() === 'n') {
-    return false;
-  }
-
-  if (!isOwnerCartCandidate(product)) {
-    return false;
-  }
-
-  if (session && product.노출제외) {
-    const myName = String(session.customerName || '').trim().toLowerCase();
-    const excludedCustomers = String(product.노출제외)
-      .split(',')
-      .map(s => s.trim().toLowerCase())
-      .filter(Boolean);
-    if (myName && excludedCustomers.includes(myName)) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
 export default function DashboardClient({ products, session, globalSettings }: DashboardClientProps) {
   const router = useRouter();
   const { addToCart, cartCount } = useCart();
@@ -211,7 +125,7 @@ export default function DashboardClient({ products, session, globalSettings }: D
     if (typeof window !== 'undefined') {
       const previous = window.history.scrollRestoration;
       window.history.scrollRestoration = 'manual';
-      window.scrollTo({ top: 0, left: 0 });
+      resetStorefrontScroll();
       return () => {
         window.history.scrollRestoration = previous;
       };
@@ -321,56 +235,6 @@ export default function DashboardClient({ products, session, globalSettings }: D
   };
   const getCategoryDisplay = (cat: string) => cat === OWNER_CART_CATEGORY ? '쥔장장바구니' : cat;
 
-  // DB category to storefront category mapping helper
-  const getProductMainCategories = (product: Product): string[] => {
-    const mainCats = new Set<string>();
-    
-    // 1. 카테고리 필드 처리 (신상 -> NEW, 선기획 -> 선기획)
-    if (product.카테고리) {
-      const parts = product.카테고리.split(',').map(s => s.trim());
-      parts.forEach(name => {
-        if (name === '신상') mainCats.add('NEW');
-        else if (name === '선기획') mainCats.add('선기획');
-      });
-    }
-
-    // 2. 아이템 필드 처리 (TOP, BOTTOM, OUTER, ONE-PIECE 매핑)
-    if (product.아이템) {
-      const itemStr = product.아이템.trim();
-      const match = itemStr.match(/^([a-zA-Z0-9-]+)(?:\(([^)]+)\))?/);
-      if (match) {
-        const code = match[1].toUpperCase();
-        const koName = (match[2] || '').trim();
-
-        if (code === 'KT' || koName === '니트') {
-          mainCats.add('KNIT');
-        }
-        // TOP --> SH, BL, VT, TS, NS
-        else if (['SH', 'BL', 'VT', 'TS', 'NS'].includes(code) || 
-            ['블라우스', '셔츠/남방', '셔츠', '베스트', '티셔츠', '나시'].includes(koName)) {
-          mainCats.add('TOP');
-        }
-        // BOTTOM --> PT, SK, HPT
-        else if (['PT', 'SK', 'HPT'].includes(code) || 
-                 ['팬츠', '반바지', '스커트'].includes(koName)) {
-          mainCats.add('BOTTOM');
-        }
-        // OUTER --> L-JK, SET, Y, JP, JK, CT
-        else if (['L-JK', 'SET', 'Y', 'JP', 'JK', 'CT'].includes(code) || 
-                 ['레자', '세트', '가디건', '점퍼', '자켓', '코트'].includes(koName)) {
-          mainCats.add('OUTER');
-        }
-        // ONE-PIECE --> ONE-PIECE, OPS
-        else if (['ONE-PIECE', 'OPS'].includes(code) || 
-                 ['원피스'].includes(koName)) {
-          mainCats.add('ONE-PIECE');
-        }
-      }
-    }
-    
-    return Array.from(mainCats);
-  };
-
   // 2. Data Filtering & Ordering
   const filteredProducts = products.filter(p => (
     selectedCategory === OWNER_CART_CATEGORY
@@ -419,7 +283,7 @@ export default function DashboardClient({ products, session, globalSettings }: D
 
   useLayoutEffect(() => {
     if (!isMounted || typeof window === 'undefined') return;
-    window.scrollTo({ top: 0, left: 0 });
+    resetStorefrontScroll();
   }, [selectedCategory, isMounted]);
 
   useEffect(() => {
@@ -466,6 +330,7 @@ export default function DashboardClient({ products, session, globalSettings }: D
 
   const handleSync = () => {
     setSelectedCategory('NEW');
+    resetStorefrontScroll();
   };
 
   const handleAddToCart = (product: Product) => {
@@ -753,6 +618,7 @@ export default function DashboardClient({ products, session, globalSettings }: D
               style={{ fontFamily: 'var(--font-cinzel)' }}
               onClick={() => {
                 setSelectedCategory('ALL');
+                resetStorefrontScroll();
               }}
             >
               U&ME
@@ -780,7 +646,10 @@ export default function DashboardClient({ products, session, globalSettings }: D
                     disabled={isDisabled}
                     title={isDisabled ? '허락된 거래처만 이용 가능합니다.' : categoryLabels[cat]}
                     onClick={() => {
-                      if (!isDisabled) setSelectedCategory(cat);
+                      if (!isDisabled) {
+                        setSelectedCategory(cat);
+                        resetStorefrontScroll();
+                      }
                     }}
                     className={`group text-[12px] tracking-[0.14em] uppercase rounded-full px-5 py-[10px] font-semibold transition-all duration-300 min-w-[100px] text-center flex items-center justify-center subpixel-antialiased ${
                       isSelected
