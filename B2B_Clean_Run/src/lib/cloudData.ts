@@ -221,6 +221,16 @@ export async function writeCloudProducts(products: Product[], replaceAll = false
   await ensureCloudSchema();
   const queries: D1WriteQuery[] = [];
   if (replaceAll) {
+    if (process.env.ALLOW_CLOUD_REPLACE_ALL_PRODUCTS !== 'true') {
+      throw new Error('운영 D1 상품 전체 덮어쓰기는 차단되어 있습니다. 수정/추가 상품만 부분 반영해야 합니다.');
+    }
+
+    const existingCountRows = await queryD1<{ count: number }>('SELECT COUNT(*) as count FROM products');
+    const existingCount = Number(existingCountRows[0]?.count || 0);
+    if (existingCount > 0 && products.length < Math.ceil(existingCount * 0.8)) {
+      throw new Error(`상품 전체 덮어쓰기가 차단되었습니다. 기존 ${existingCount}개에서 ${products.length}개로 줄어드는 저장입니다.`);
+    }
+
     queries.push({ sql: 'DELETE FROM products' });
   }
   const now = new Date().toISOString();

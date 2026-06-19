@@ -1567,24 +1567,42 @@ export default function AdminPage() {
       }));
 
     try {
+      const payload: Record<string, unknown> = {
+        replaceAllProducts: false,
+        globalSettings: {
+          ...globalSettings,
+          columnWidths,
+          visibleColumns: ALL_COLUMNS.filter(c => !hiddenColumns.includes(c.key)).map(c => c.key),
+          columnOrder
+        }
+      };
+
+      if (changedProducts.length > 0) {
+        payload.products = changedProducts;
+      }
+
+      if (deletedProductKeys.length > 0) {
+        payload.deletedProductCodes = deletedProductKeys;
+        payload.confirmLargeDelete = false;
+      }
+
       const res = await fetch('/api/admin/products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          products: changedProducts,
-          deletedProductCodes: deletedProductKeys,
-          replaceAllProducts: false,
-          globalSettings: {
-            ...globalSettings,
-            columnWidths,
-            visibleColumns: ALL_COLUMNS.filter(c => !hiddenColumns.includes(c.key)).map(c => c.key),
-            columnOrder
-          }
-        })
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (data.success) {
-        alert('성공적으로 데이터베이스에 저장되었으며, 신규 상품이 전체 데이터베이스로 정식 편입되었습니다.');
+        const savedCount = Number(data.savedProductCount || 0);
+        const deletedCount = Number(data.deletedProductCount || 0);
+        const summaryParts = [
+          savedCount > 0 ? `상품 ${savedCount}개 반영` : '',
+          deletedCount > 0 ? `삭제 ${deletedCount}개 반영` : '',
+          data.settingsSaved ? '설정 저장' : '',
+        ].filter(Boolean);
+        alert(summaryParts.length > 0
+          ? `성공적으로 저장되었습니다.\n${summaryParts.join(' / ')}`
+          : '변경된 상품은 없고 설정만 확인되었습니다.');
         setActiveTab('all'); // 저장 완료 시 전체 보기로 전환
         handleResetAllFilters(); // 저장 완료 시 모든 필터 및 정렬 상태 초기화
         setSelectedKeys([]);

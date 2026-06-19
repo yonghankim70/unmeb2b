@@ -17,6 +17,26 @@ function productKey(product: Product): string {
   return String(product.임시코드 || product.상품명 || '').trim();
 }
 
+function normalizeCodes(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  return Array.from(new Set(values.map((value) => String(value || '').trim()).filter(Boolean)));
+}
+
+function findDuplicateProductCodes(products: Product[]): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const product of products) {
+    const code = productKey(product);
+    if (!code) continue;
+    if (seen.has(code)) {
+      duplicates.add(code);
+    } else {
+      seen.add(code);
+    }
+  }
+  return [...duplicates];
+}
+
 export async function GET(request: NextRequest) {
   try {
     if (!(await isAdminAuthenticated())) {
@@ -46,15 +66,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: '관리자 로그인이 필요합니다.' }, { status: 401 });
     }
 
-    const { products, globalSettings, categories, deletedProductCodes, replaceAllProducts } = await request.json();
+    const { products, globalSettings, categories, deletedProductCodes, replaceAllProducts, confirmLargeDelete } = await request.json();
+    const normalizedDeletedProductCodes = normalizeCodes(deletedProductCodes);
     
-    if ((!products || !Array.isArray(products)) && !globalSettings && !categories && (!deletedProductCodes || !Array.isArray(deletedProductCodes))) {
+    if ((!products || !Array.isArray(products)) && !globalSettings && !categories && normalizedDeletedProductCodes.length === 0) {
       return NextResponse.json({ success: false, message: '올바르지 않은 데이터 형식입니다.' }, { status: 400 });
     }
 
     const isCloudMode = isCloudDbEnabled();
+    let savedProductCount = 0;
+    let deletedProductCount = 0;
+    let settingsSaved = false;
+    let categoriesSaved = false;
 
     if (products && Array.isArray(products)) {
+      const duplicateCodes = findDuplicateProductCodes(products);
+      if (duplicateCodes.length > 0) {
+        return NextResponse.json({
+          success: false,
+          message: `중복 상품 코드가 있어 저장을 중단했습니다: ${duplicateCodes.slice(0, 8).join(', ')}`,
+        }, { status: 400 });
+      }
+
       if (isCloudMode) {
         if (replaceAllProducts !== false) {
           const countRows = await queryD1<{ count: number }>('SELECT COUNT(*) as count FROM products');
@@ -67,16 +100,15 @@ export async function POST(request: NextRequest) {
             { status: 409 }
           );
         }
-        await writeCloudProducts(products, replaceAllProducts !== false);
+        await writeCloudProducts(products, false);
+        savedProductCount = products.filter((product: Product) => productKey(product)).length;
       } else {
         const nextProducts = replaceAllProducts === false
           ? (() => {
               const current = readExcelData().products;
               const incomingMap = new Map(products.map((product: Product) => [productKey(product), product]));
               const deletedSet = new Set(
-                Array.isArray(deletedProductCodes)
-                  ? deletedProductCodes.map((code: string) => String(code || '').trim()).filter(Boolean)
-                  : []
+                normalizedDeletedProductCodes
               );
 
               const merged = current
@@ -97,19 +129,37 @@ export async function POST(request: NextRequest) {
         if (!success) {
           return NextResponse.json({ success: false, message: 'JSON 데이터베이스 파일 저장 중 오류가 발생했습니다.' }, { status: 500 });
         }
+        savedProductCount = products.filter((product: Product) => productKey(product)).length;
+        if (normalizedDeletedProductCodes.length > 0) {
+          deletedProductCount = normalizedDeletedProductCodes.length;
+        }
       }
     }
 
-    if (deletedProductCodes && Array.isArray(deletedProductCodes)) {
+    if (normalizedDeletedProductCodes.length > 0) {
       if (isCloudMode) {
-        await deleteCloudProducts(deletedProductCodes);
-      } else if ((!products || !Array.isArray(products)) && deletedProductCodes.length > 0) {
-        const deletedSet = new Set(deletedProductCodes.map((code: string) => String(code || '').trim()).filter(Boolean));
+        const countRows = await queryD1<{ count: number }>('SELECT COUNT(*) as count FROM products');
+        const existingCount = Number(countRows[0]?.count || 0);
+        const largeDeleteLimit = Math.max(30, Math.floor(existingCount * 0.5));
+        if (!confirmLargeDelete && existingCount > 0 && normalizedDeletedProductCodes.length > largeDeleteLimit) {
+          return NextResponse.json(
+            {
+              success: false,
+              message: `상품 삭제가 차단되었습니다. 현재 ${existingCount}개 중 ${normalizedDeletedProductCodes.length}개 삭제 요청입니다. 대량 삭제는 별도 확인 절차가 필요합니다.`,
+            },
+            { status: 409 }
+          );
+        }
+        await deleteCloudProducts(normalizedDeletedProductCodes);
+        deletedProductCount = normalizedDeletedProductCodes.length;
+      } else if ((!products || !Array.isArray(products)) && normalizedDeletedProductCodes.length > 0) {
+        const deletedSet = new Set(normalizedDeletedProductCodes);
         const remaining = readExcelData().products.filter((product: Product) => !deletedSet.has(productKey(product)));
         const success = saveProducts(remaining);
         if (!success) {
           return NextResponse.json({ success: false, message: '상품 삭제 저장 중 오류가 발생했습니다.' }, { status: 500 });
         }
+        deletedProductCount = normalizedDeletedProductCodes.length;
       }
     }
 
@@ -122,6 +172,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, message: '글로벌 설정 저장 중 오류가 발생했습니다.' }, { status: 500 });
         }
       }
+      settingsSaved = true;
     }
 
     if (categories && Array.isArray(categories)) {
@@ -133,9 +184,17 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, message: '카테고리 저장 중 오류가 발생했습니다.' }, { status: 500 });
         }
       }
+      categoriesSaved = true;
     }
 
-    return NextResponse.json({ success: true, message: '성공적으로 저장되었습니다.' });
+    return NextResponse.json({
+      success: true,
+      message: '성공적으로 저장되었습니다.',
+      savedProductCount,
+      deletedProductCount,
+      settingsSaved,
+      categoriesSaved,
+    });
   } catch (error: any) {
     console.error('[Admin API POST] 에러 발생:', error);
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
