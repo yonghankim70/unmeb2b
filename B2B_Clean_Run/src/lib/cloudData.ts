@@ -44,6 +44,12 @@ const DEFAULT_SETTINGS: GlobalSettings = {
 };
 
 type PayloadRow = { payload?: string };
+type CustomerPayloadRow = PayloadRow & {
+  name?: string;
+  grade?: string;
+  owner_cart_allowed?: string;
+  login_blocked?: string;
+};
 type SettingRow = { key: string; value: string };
 type D1WriteQuery = { sql: string; params?: unknown[] };
 
@@ -100,6 +106,25 @@ function parsePayload<T>(row: PayloadRow, fallback: T): T {
 
 function productCode(product: Product): string {
   return String(product.임시코드 || product.상품명 || '').trim();
+}
+
+function customerName(customer: Customer): string {
+  return String(customer.거래처명 || '').trim();
+}
+
+function normalizeCustomer(customer: Customer, row?: CustomerPayloadRow): Customer {
+  return {
+    ...customer,
+    거래처명: customerName(customer) || String(row?.name || '').trim(),
+    접속코드: customer.접속코드 || '',
+    거래처등급: customer.거래처등급 || row?.grade || 'C',
+    텔레그램ID: customer.텔레그램ID || '',
+    결제방식: customer.결제방식 || '당일결제',
+    세금계산서발행: customer.세금계산서발행 || '미발행',
+    로그인차단: customer.로그인차단 || row?.login_blocked || 'n',
+    쥔장장바구니허락: customer.쥔장장바구니허락 || row?.owner_cart_allowed || 'n',
+    최근접속일: customer.최근접속일 || '',
+  };
 }
 
 function orderId(order: CustomerOrder, index = 0): string {
@@ -279,24 +304,22 @@ export async function deleteCloudProducts(productCodes: string[]): Promise<void>
 
 export async function readCloudCustomers(): Promise<Customer[]> {
   await ensureCloudSchema();
-  const rows = await queryD1<PayloadRow>('SELECT payload FROM customers ORDER BY name ASC');
+  const rows = await queryD1<CustomerPayloadRow>(
+    'SELECT name, grade, owner_cart_allowed, login_blocked, payload FROM customers ORDER BY name ASC'
+  );
   return rows.map((row) => {
     const customer = parsePayload<Customer>(row, {} as Customer);
-    return {
-      ...customer,
-      텔레그램ID: customer.텔레그램ID || '',
-      결제방식: customer.결제방식 || '당일결제',
-      세금계산서발행: customer.세금계산서발행 || '미발행',
-      로그인차단: customer.로그인차단 || 'n',
-      쥔장장바구니허락: customer.쥔장장바구니허락 || 'n',
-      최근접속일: customer.최근접속일 || '',
-    };
-  });
+    return normalizeCustomer(customer, row);
+  }).filter((customer) => customerName(customer));
 }
 
 export async function writeCloudCustomers(customers: Customer[], replaceAll = false): Promise<void> {
   await ensureCloudSchema();
   if (replaceAll) {
+    if (process.env.ALLOW_CLOUD_REPLACE_ALL_CUSTOMERS !== 'true') {
+      throw new Error('운영 D1 거래처 전체 덮어쓰기는 차단되어 있습니다. 수정/추가 거래처만 부분 반영해야 합니다.');
+    }
+
     const existingCountRows = await queryD1<{ count: number }>('SELECT COUNT(*) as count FROM customers');
     const existingCount = Number(existingCountRows[0]?.count || 0);
     if (existingCount >= 8 && customers.length <= Math.floor(existingCount * 0.6) && existingCount - customers.length >= 5) {
@@ -309,14 +332,15 @@ export async function writeCloudCustomers(customers: Customer[], replaceAll = fa
   }
   const now = new Date().toISOString();
   const rows = customers.reduce<unknown[][]>((acc, customer) => {
-    const name = String(customer.거래처명 || '').trim();
+    const normalized = normalizeCustomer(customer);
+    const name = customerName(normalized);
     if (!name) return acc;
     acc.push([
         name,
-        customer.거래처등급 || '',
-        customer.쥔장장바구니허락 || 'n',
-        customer.로그인차단 || 'n',
-        JSON.stringify(customer),
+        normalized.거래처등급 || '',
+        normalized.쥔장장바구니허락 || 'n',
+        normalized.로그인차단 || 'n',
+        JSON.stringify(normalized),
         now,
     ]);
     return acc;
@@ -326,6 +350,21 @@ export async function writeCloudCustomers(customers: Customer[], replaceAll = fa
     queries.push({
       sql: `INSERT OR REPLACE INTO customers (${CUSTOMER_INSERT_COLUMNS.join(', ')}) VALUES ${valuesPlaceholders(chunk.length, CUSTOMER_INSERT_COLUMNS.length)}`,
       params: chunk.flat(),
+    });
+  }
+
+  await runWriteBatch(queries);
+}
+
+export async function deleteCloudCustomers(customerNames: string[]): Promise<void> {
+  await ensureCloudSchema();
+
+  const names = uniqueNonEmpty(customerNames);
+  const queries: D1WriteQuery[] = [];
+  for (const chunk of chunkArray(names, 80)) {
+    queries.push({
+      sql: `DELETE FROM customers WHERE name IN (${chunk.map(() => '?').join(', ')})`,
+      params: chunk,
     });
   }
 

@@ -11,8 +11,48 @@ import {
 
 const DEFAULT_CUSTOMER_GRADE_OPTIONS = ['S', 'A', 'B', 'C', 'W', '일반등급'];
 
+function getCustomerKey(customer?: Customer): string {
+  return String(customer?.거래처명 || '').trim();
+}
+
+function mergeCustomerGradeOptions(options: unknown): string[] {
+  const serverOptions = Array.isArray(options)
+    ? options.map((option) => String(option || '').trim()).filter(Boolean)
+    : [];
+  return Array.from(new Set([...DEFAULT_CUSTOMER_GRADE_OPTIONS, ...serverOptions]));
+}
+
 function getCustomerGradeLabel(grade: string): string {
   return grade === '일반등급' ? '일반등급' : `${grade} 등급`;
+}
+
+function normalizeCustomerForView(customer: Customer): Customer {
+  return {
+    ...customer,
+    거래처명: getCustomerKey(customer),
+    접속코드: customer.접속코드 || '',
+    거래처등급: customer.거래처등급 || 'C',
+    텔레그램ID: customer.텔레그램ID || '',
+    결제방식: customer.결제방식 || '당일결제',
+    세금계산서발행: customer.세금계산서발행 || '미발행',
+    로그인차단: customer.로그인차단 || 'n',
+    쥔장장바구니허락: customer.쥔장장바구니허락 || 'n',
+    최근접속일: customer.최근접속일 || '',
+  };
+}
+
+function normalizeCustomerForSave(customer: Customer): Customer {
+  return {
+    거래처명: getCustomerKey(customer),
+    접속코드: customer.접속코드 || '',
+    거래처등급: customer.거래처등급 || 'C',
+    텔레그램ID: customer.텔레그램ID || '',
+    결제방식: customer.결제방식 || '당일결제',
+    세금계산서발행: customer.세금계산서발행 || '미발행',
+    로그인차단: customer.로그인차단 || 'n',
+    쥔장장바구니허락: customer.쥔장장바구니허락 || 'n',
+    최근접속일: customer.최근접속일 || '',
+  };
 }
 
 export default function AdminCustomersPage() {
@@ -55,6 +95,8 @@ export default function AdminCustomersPage() {
 
   // Track newly added row indices (to allow editing their Customer Name)
   const [newRowIndices, setNewRowIndices] = useState<Set<number>>(new Set());
+  const [dirtyCustomerKeys, setDirtyCustomerKeys] = useState<string[]>([]);
+  const [deletedCustomerNames, setDeletedCustomerNames] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -104,14 +146,15 @@ export default function AdminCustomersPage() {
       const res = await fetch(`/api/admin/customers?startDate=${start}&endDate=${end}`);
       const data = await res.json();
       if (data.success) {
-        setCustomers(data.customers || []);
-        setOriginalCustomers(JSON.parse(JSON.stringify(data.customers || [])));
-        setCustomerGradeOptions(
-          Array.isArray(data.globalSettings?.customerGradeOptions) && data.globalSettings.customerGradeOptions.length > 0
-            ? data.globalSettings.customerGradeOptions
-            : DEFAULT_CUSTOMER_GRADE_OPTIONS
-        );
+        const loadedCustomers = Array.isArray(data.customers)
+          ? data.customers.map((customer: Customer) => normalizeCustomerForView(customer))
+          : [];
+        setCustomers(loadedCustomers);
+        setOriginalCustomers(JSON.parse(JSON.stringify(loadedCustomers)));
+        setCustomerGradeOptions(mergeCustomerGradeOptions(data.globalSettings?.customerGradeOptions));
         setNewRowIndices(new Set());
+        setDirtyCustomerKeys([]);
+        setDeletedCustomerNames([]);
         setPasswordVisibility({});
       }
     } catch (e) {
@@ -129,18 +172,35 @@ export default function AdminCustomersPage() {
 
   // Handle save customers list
   const handleSaveCustomers = async () => {
+    const normalizedCustomers = customers.map((customer) => normalizeCustomerForView(customer));
+
     // Validation
-    const invalidRows = customers.filter(c => !c.거래처명.trim());
+    const invalidRows = normalizedCustomers.filter(c => !getCustomerKey(c));
     if (invalidRows.length > 0) {
       alert('거래처명은 빈칸으로 둘 수 없습니다. 모든 행의 거래처명을 채워주세요.');
       return;
     }
 
     // Duplicate check
-    const names = customers.map(c => c.거래처명.trim().toLowerCase());
+    const names = normalizedCustomers.map(c => getCustomerKey(c).toLowerCase());
     const duplicates = names.filter((item, index) => names.indexOf(item) !== index);
     if (duplicates.length > 0) {
       alert(`중복된 거래처명이 있습니다: ${Array.from(new Set(duplicates)).join(', ')}\n거래처명은 고유해야 합니다.`);
+      return;
+    }
+
+    const originalKeys = new Set(originalCustomers.map((customer) => getCustomerKey(customer).toLowerCase()).filter(Boolean));
+    const dirtyKeys = new Set(dirtyCustomerKeys.map((name) => name.toLowerCase()));
+    const changedCustomers = normalizedCustomers
+      .filter((customer) => {
+        const key = getCustomerKey(customer).toLowerCase();
+        return dirtyKeys.has(key) || !originalKeys.has(key);
+      })
+      .map(normalizeCustomerForSave);
+    const deletedNames = Array.from(new Set(deletedCustomerNames.map((name) => name.trim()).filter(Boolean)));
+
+    if (changedCustomers.length === 0 && deletedNames.length === 0) {
+      alert('변경된 거래처 정보가 없습니다.');
       return;
     }
 
@@ -149,11 +209,17 @@ export default function AdminCustomersPage() {
       const res = await fetch('/api/admin/customers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customers })
+        body: JSON.stringify({
+          customers: changedCustomers,
+          deletedCustomerNames: deletedNames,
+          replaceAllCustomers: false,
+        })
       });
       const data = await res.json();
       if (data.success) {
-        alert('거래처 마스터 정보가 성공적으로 Master.xlsx에 저장되었습니다.');
+        const savedCount = Number(data.savedCustomerCount ?? changedCustomers.length);
+        const deletedCount = Number(data.deletedCustomerCount ?? deletedNames.length);
+        alert(`거래처 마스터가 반영되었습니다.\n수정/추가: ${savedCount}개\n삭제: ${deletedCount}개`);
         loadCustomers();
       } else {
         alert(data.message || '저장 실패');
@@ -210,6 +276,15 @@ export default function AdminCustomersPage() {
     const updated = customers.filter((_, i) => i !== index);
     setCustomers(updated);
 
+    const customerName = getCustomerKey(cust);
+    const persisted = originalCustomers.some((customer) => getCustomerKey(customer).toLowerCase() === customerName.toLowerCase());
+    if (customerName && persisted) {
+      setDeletedCustomerNames(prev => Array.from(new Set([...prev, customerName])));
+    }
+    if (customerName) {
+      setDirtyCustomerKeys(prev => prev.filter((name) => name.toLowerCase() !== customerName.toLowerCase()));
+    }
+
     // Adjust newRowIndices
     setNewRowIndices(prev => {
       const next = new Set<number>();
@@ -232,6 +307,12 @@ export default function AdminCustomersPage() {
       [field]: value
     };
     setCustomers(updated);
+
+    const key = getCustomerKey(updated[index]);
+    if (key) {
+      setDirtyCustomerKeys(prev => Array.from(new Set([...prev, key])));
+      setDeletedCustomerNames(prev => prev.filter((name) => name.toLowerCase() !== key.toLowerCase()));
+    }
   };
 
   // Password visibility toggle handler
@@ -244,7 +325,7 @@ export default function AdminCustomersPage() {
 
   // Filter based on search term
   const filteredCustomers = customers.map((c, originalIdx) => ({ ...c, originalIdx })).filter(item => {
-    return item.거래처명.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    return getCustomerKey(item).toLowerCase().includes(searchTerm.toLowerCase()) ||
            (item.텔레그램ID || '').includes(searchTerm);
   });
 
@@ -338,7 +419,7 @@ export default function AdminCustomersPage() {
             CUSTOMER MASTER MANAGEMENT
           </h1>
           <p className="text-xs text-neutral-400 font-light leading-relaxed">
-            `Master.xlsx` 데이터베이스 파일에 연동되어 있는 거래처 마스터 정보를 직접 관리합니다.<br />
+            운영 데이터베이스에 연동되어 있는 거래처 마스터 정보를 직접 관리합니다.<br />
             거래처 등급에 따른 도매 가격 필터링, 로그인 접속용 비밀번호 코드, 텔레그램 실시간 안내 알림방 챗 아이디(Chat ID)를 입력할 수 있습니다.
           </p>
         </div>
@@ -661,7 +742,7 @@ export default function AdminCustomersPage() {
         {/* Add Bottom helper */}
         <div className="flex justify-between items-center select-none bg-neutral-50 border border-neutral-100 p-4">
           <span className="text-[11px] text-neutral-400 font-light">
-            💡 변경사항은 우측 상단의 [저장] 버튼을 클릭해야 데이터베이스에 반영됩니다.
+            변경사항은 우측 상단의 [저장] 버튼을 클릭해야 데이터베이스에 반영됩니다.
           </span>
         </div>
 
