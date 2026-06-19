@@ -1840,8 +1840,9 @@ export default function AdminPage() {
       return;
     }
 
+    const selectedSet = new Set(selectedKeys);
     const updated = products.map(p => {
-      const isTarget = selectedKeys.includes(p.임시코드 || p.상품명);
+      const isTarget = selectedSet.has(getProductKey(p));
       if (!isTarget) return p;
 
       const row = { ...p };
@@ -1970,8 +1971,7 @@ export default function AdminPage() {
     });
 
     setProducts(updated);
-    markProductsDirty(updated.filter(p => selectedKeys.includes(p.임시코드 || p.상품명)));
-    setSelectedKeys([]);
+    markProductsDirty(updated.filter(p => selectedSet.has(getProductKey(p))));
     setIsBulkUpdateModalOpen(false);
 
     // bulkFields 초기화
@@ -2008,7 +2008,7 @@ export default function AdminPage() {
       gradeExcludeValue: ''
     });
 
-    alert(`선택한 상품 정보가 일괄 변경되었습니다. 변경 내용을 파일에 최종 반영하려면 상단의 [저장] 버튼을 꼭 클릭해 주세요.`);
+    alert(`선택한 상품 정보가 일괄 변경되었습니다. 체크 상태를 유지했으니 상단의 [저장] 버튼을 바로 눌러 최종 반영해 주세요.`);
   };
 
   // 글로벌 설정 일괄 적용 (체크박스 선택된 항목만 강제 적용)
@@ -2018,7 +2018,8 @@ export default function AdminPage() {
       return;
     }
 
-    const targets = products.filter(p => selectedKeys.includes(p.임시코드 || p.상품명));
+    const selectedSet = new Set(selectedKeys);
+    const targets = products.filter(p => selectedSet.has(getProductKey(p)));
 
     if (targets.length === 0) {
       alert('선택된 상품 중 적용 가능한 대상이 없습니다.');
@@ -2033,7 +2034,7 @@ export default function AdminPage() {
     }
 
     const updated = products.map(p => {
-      const isTarget = selectedKeys.includes(p.임시코드 || p.상품명);
+      const isTarget = selectedSet.has(getProductKey(p));
 
       if (!isTarget) return p;
 
@@ -2066,10 +2067,9 @@ export default function AdminPage() {
     });
 
     setProducts(updated);
-    markProductsDirty(updated.filter(p => selectedKeys.includes(p.임시코드 || p.상품명)));
-    setSelectedKeys([]);
+    markProductsDirty(updated.filter(p => selectedSet.has(getProductKey(p))));
     alert(`선택한 ${targets.length}개의 상품에 글로벌 설정이 일괄 적용되었습니다.
-최종 저장을 원하시면 상단의 [저장] 버튼을 눌러주세요.`);
+체크 상태를 유지했으니 최종 저장을 원하시면 상단의 [저장] 버튼을 눌러주세요.`);
   };
 
   // 고유한 동기화시간 목록 추출 (내림차순 정렬)
