@@ -57,9 +57,13 @@ function readProductImageNames(product: Product): string[] {
 
 function decodeR2KeySegment(segment: string): string {
   try {
-    return decodeURIComponent(segment);
+    return decodeURIComponent(decodeURIComponent(segment));
   } catch {
-    return segment;
+    try {
+      return decodeURIComponent(segment);
+    } catch {
+      return segment;
+    }
   }
 }
 
@@ -131,11 +135,23 @@ function parseVariantManifest(value: FormDataEntryValue | null): UploadVariantMa
     .filter((item) => item.field && item.fileName && ALL_CLOUD_WIDTHS.has(item.width));
 }
 
+function parseExistingImages(value: FormDataEntryValue | null): string[] {
+  if (typeof value !== 'string' || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return mergeImageNames(parsed.map((name) => String(name || '').trim()), []);
+  } catch {
+    return [];
+  }
+}
+
 async function uploadCloudPreparedProductImages(
   week: string,
   code: string,
   formData: FormData,
   manifest: UploadVariantManifestItem[],
+  clientImageNames: string[],
 ) {
   const product = await readCloudProductByCode(code);
   if (!product) {
@@ -144,7 +160,7 @@ async function uploadCloudPreparedProductImages(
 
   const existingImageNames = readProductImageNames(product);
   const uploadedNames = new Set<string>();
-  let mainUpdated = manifest.some((item) => item.kind === 'main');
+  const mainUpdated = manifest.some((item) => item.kind === 'main');
 
   const imageNames = new Set(manifest.filter((item) => item.kind === 'detail').map((item) => item.fileName));
   if (imageNames.size === 0) {
@@ -191,15 +207,21 @@ async function uploadCloudPreparedProductImages(
 
   const latestProduct = (await readCloudProductByCode(code)) || product;
   const latestImageNames = readProductImageNames(latestProduct);
-  let storedImageNames: string[] = [];
-  try {
-    storedImageNames = await listCloudDetailImageNames(week, code);
-  } catch (error) {
-    console.warn('[Upload API] R2 detail image list failed:', error);
+  let baseImageNames = mergeImageNames(
+    [...existingImageNames, ...latestImageNames, ...clientImageNames],
+    [],
+  );
+
+  if (baseImageNames.length === 0) {
+    try {
+      baseImageNames = await listCloudDetailImageNames(week, code);
+    } catch (error) {
+      console.warn('[Upload API] R2 detail image list failed:', error);
+    }
   }
 
   latestProduct.상세이미지목록 = mergeImageNames(
-    [...existingImageNames, ...latestImageNames, ...storedImageNames],
+    baseImageNames,
     [...uploadedNames],
   );
   await writeCloudProduct(latestProduct);
@@ -251,7 +273,8 @@ export async function POST(request: NextRequest) {
         }, { status: 400 });
       }
 
-      const result = await uploadCloudPreparedProductImages(week, code, formData, variantManifest);
+      const clientImageNames = parseExistingImages(formData.get('existingImages'));
+      const result = await uploadCloudPreparedProductImages(week, code, formData, variantManifest, clientImageNames);
       return NextResponse.json({
         success: true,
         message: '외부 운영용 이미지 업로드가 완료되었습니다.',

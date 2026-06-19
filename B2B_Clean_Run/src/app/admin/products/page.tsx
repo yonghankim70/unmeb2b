@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Product, ItemMaster, ColorMaster, CategoryMaster, Customer } from '@/lib/db';
 import { useRouter, usePathname } from 'next/navigation';
 import { clearAdminAuthCache, hasFreshAdminAuthCache, markAdminAuthenticated, prefetchAdminRoutes, verifyAdminStatus } from '@/lib/adminClient';
-import { getApiImageUrl, getCachedDetailImageUrl, getEncodedOptimizedDetailImageUrl, getLegacyDetailImageUrl, useImageFallbacks } from '@/lib/imageUrls';
+import { getApiImageUrl, getCachedDetailImageUrl, getEncodedOptimizedDetailImageUrl, getLegacyDetailImageUrl, useImageFallbacks as applyImageFallbacks } from '@/lib/imageUrls';
 import { 
   Lock, Save, RefreshCw, Trash2, Search, Plus, 
   ArrowLeft, ArrowUpDown, ChevronDown, Check, AlertCircle, HelpCircle, Calculator, FileUp, FileDown,
@@ -95,6 +95,46 @@ interface UploadVariantManifestItem {
   width: number;
 }
 
+function cleanImageNames(names: unknown[]): string[] {
+  const unique: string[] = [];
+  for (const name of names) {
+    const cleanName = String(name || '').trim();
+    if (cleanName && !unique.includes(cleanName)) {
+      unique.push(cleanName);
+    }
+  }
+  return unique;
+}
+
+function mergeClientImageNames(...groups: unknown[][]): string[] {
+  return cleanImageNames(groups.flat());
+}
+
+function getProductCode(product: Product | null | undefined): string {
+  return String(product?.임시코드 || product?.상품명 || '').trim();
+}
+
+function getReadableResponseError(rawText: string, status: number, fallback: string): string {
+  const trimmed = rawText.trim();
+  if (!trimmed) return `${fallback} (${status})`;
+  if (/internal server error/i.test(trimmed)) {
+    return `${fallback}: 서버 내부 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.`;
+  }
+  if (trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html')) {
+    return `${fallback}: 서버가 오류 화면을 반환했습니다. 새로고침 후 다시 시도해 주세요.`;
+  }
+  return `${fallback}: ${trimmed}`;
+}
+
+async function readJsonResponse(res: Response, fallback: string): Promise<any> {
+  const rawText = await res.text();
+  try {
+    return rawText ? JSON.parse(rawText) : null;
+  } catch {
+    throw new Error(getReadableResponseError(rawText, res.status, fallback));
+  }
+}
+
 function isMainUploadFileName(fileName: string): boolean {
   const lower = fileName.toLowerCase();
   return lower === '1.jpg'
@@ -168,7 +208,7 @@ async function appendCloudWebpUploadPayload(formData: FormData, files: File[]): 
 
   for (const [index, file] of files.entries()) {
     if (!file.type.startsWith('image/')) continue;
-    const shouldUpdateMain = index === 0 || isMainUploadFileName(file.name);
+    const shouldUpdateMain = isMainUploadFileName(file.name);
     uploadedNames.push(file.name);
 
     for (const width of CLOUD_DETAIL_WIDTHS) {
@@ -439,7 +479,12 @@ export default function AdminPage() {
                     onChange={(e) => {
                       const fileList = Array.from(e.target.files || []);
                       if (fileList.length > 0) {
-                        handleImageUpload(product.주차, imgCode, fileList);
+                        handleImageUpload(
+                          product.주차,
+                          imgCode,
+                          fileList,
+                          Array.isArray(product.상세이미지목록) ? product.상세이미지목록 : [],
+                        );
                       }
                       e.currentTarget.value = '';
                     }}
@@ -904,8 +949,19 @@ export default function AdminPage() {
   const [newSeasonName, setNewSeasonName] = useState('');
   const [newGradeName, setNewGradeName] = useState('');
 
+  const withCacheBuster = (url: string) => {
+    if (!cacheBuster) return url;
+    return `${url}${url.includes('?') ? '&' : '?'}t=${cacheBuster}`;
+  };
+
+  const getKnownImagesForProduct = (code: string, fallbackImages: string[] = []) => {
+    const productImages = products.find((product) => getProductCode(product) === code)?.상세이미지목록 || [];
+    const managerImages = getProductCode(managingProduct) === code ? managingImages : [];
+    return mergeClientImageNames(fallbackImages, productImages, managerImages);
+  };
+
   const applyProductImagesLocally = (code: string, images: string[]) => {
-    const cleanImages = images.map((name) => String(name || '').trim()).filter(Boolean);
+    const cleanImages = cleanImageNames(images);
     setProducts(prev => prev.map((product) => {
       const productCode = String(product.임시코드 || product.상품명 || '').trim();
       if (productCode !== code) return product;
@@ -926,58 +982,83 @@ export default function AdminPage() {
     setManagingImages(cleanImages);
   };
 
-  const handleImageUpload = async (week: string, code: string, files: File[]) => {
+  const handleImageUpload = async (week: string, code: string, files: File[], knownImages: string[] = []) => {
     const key = `${week}-${code}`;
     setUploadingState(prev => ({ ...prev, [key]: true }));
 
-    const formData = new FormData();
-    formData.append('week', week);
-    formData.append('code', code);
-    let expectedUploadedFiles = files.map((file) => file.name);
-    let expectedMainUpdated = false;
-
     try {
       if (isLocalAdminHost) {
+        const formData = new FormData();
+        formData.append('week', week);
+        formData.append('code', code);
         files.forEach((file) => {
           formData.append('files', file);
         });
-      } else {
-        const prepared = await appendCloudWebpUploadPayload(formData, files);
-        expectedUploadedFiles = prepared.uploadedNames;
-        expectedMainUpdated = prepared.updatedMain;
+
+        const res = await fetch('/api/admin/upload-image', {
+          method: 'POST',
+          body: formData,
+        });
+        const data = await readJsonResponse(res, '업로드 실패');
+        if (!data?.success) {
+          alert(`업로드 실패: ${data?.message || `서버 오류 (${res.status})`}`);
+          return;
+        }
+        alert(`${code} 상품의 이미지 ${Number(data.uploadedCount || files.length || 0)}개가 업로드되었습니다.`);
+        setCacheBuster((value) => value + 1);
+        return;
       }
 
-      const res = await fetch('/api/admin/upload-image', {
-        method: 'POST',
-        body: formData,
-      });
-      const rawText = await res.text();
-      let data: any = null;
-      try {
-        data = rawText ? JSON.parse(rawText) : null;
-      } catch {
-        throw new Error(rawText || `서버 응답 해석 실패 (${res.status})`);
-      }
-      if (data.success) {
-        const uploadedCount = Number(data.uploadedCount || expectedUploadedFiles.length || 0);
-        const mainMessage = (data.updatedMain || expectedMainUpdated) ? '\n대표 이미지도 함께 갱신되었습니다.' : '';
-        if (Array.isArray(data.images)) {
-          applyProductImagesLocally(code, data.images);
-        } else if (managingProduct && (managingProduct.임시코드 || managingProduct.상품명) === code) {
-          const uploadedFiles = Array.isArray(data.uploadedFiles) ? data.uploadedFiles : expectedUploadedFiles;
-          setManagingImages((prev) => {
-            const merged = [...prev];
-            uploadedFiles.forEach((name: string) => {
-              if (!merged.includes(name)) merged.push(name);
-            });
-            merged.sort((left, right) => left.localeCompare(right, 'ko-KR', { numeric: true }));
-            return merged;
+      let currentImages = getKnownImagesForProduct(code, knownImages);
+      const uploadedFiles: string[] = [];
+      const failedFiles: string[] = [];
+      let updatedMain = false;
+
+      for (const file of files) {
+        if (!file.type.startsWith('image/')) continue;
+
+        try {
+          const formData = new FormData();
+          formData.append('week', week);
+          formData.append('code', code);
+          formData.append('existingImages', JSON.stringify(currentImages));
+
+          const prepared = await appendCloudWebpUploadPayload(formData, [file]);
+          const res = await fetch('/api/admin/upload-image', {
+            method: 'POST',
+            body: formData,
           });
+          const data = await readJsonResponse(res, `${file.name} 업로드 실패`);
+          if (!data?.success) {
+            throw new Error(data?.message || `서버 오류 (${res.status})`);
+          }
+
+          const responseImages = Array.isArray(data.images) ? cleanImageNames(data.images) : [];
+          const responseUploadedFiles = Array.isArray(data.uploadedFiles)
+            ? cleanImageNames(data.uploadedFiles)
+            : prepared.uploadedNames;
+          currentImages = responseImages.length > 0
+            ? responseImages
+            : mergeClientImageNames(currentImages, responseUploadedFiles);
+          uploadedFiles.push(...responseUploadedFiles);
+          updatedMain = updatedMain || Boolean(data.updatedMain || prepared.updatedMain);
+          applyProductImagesLocally(code, currentImages);
+          setCacheBuster((value) => value + 1);
+        } catch (error: any) {
+          failedFiles.push(`${file.name}: ${error.message}`);
         }
-        alert(`${code} 상품의 이미지 ${uploadedCount}개가 업로드되었습니다.${mainMessage}`);
-        setCacheBuster(Date.now());
+      }
+
+      const uniqueUploadedFiles = cleanImageNames(uploadedFiles);
+      if (uniqueUploadedFiles.length > 0) {
+        applyProductImagesLocally(code, currentImages);
+        const mainMessage = updatedMain ? '\n대표 이미지도 함께 갱신되었습니다.' : '';
+        const failMessage = failedFiles.length > 0 ? `\n\n실패 ${failedFiles.length}장:\n${failedFiles.slice(0, 5).join('\n')}` : '';
+        alert(`${code} 상품의 이미지 ${uniqueUploadedFiles.length}개가 업로드되었습니다.${mainMessage}${failMessage}`);
+      } else if (failedFiles.length > 0) {
+        alert(`업로드 실패:\n${failedFiles.slice(0, 6).join('\n')}`);
       } else {
-        alert(`업로드 실패: ${data?.message || `서버 오류 (${res.status})`}`);
+        alert('업로드할 이미지 파일이 없습니다.');
       }
     } catch (err: any) {
       alert(`업로드 에러: ${err.message}`);
@@ -1182,7 +1263,7 @@ export default function AdminPage() {
         return null;
       }
       if (data.success) {
-        setCacheBuster(Date.now());
+        setCacheBuster((value) => value + 1);
         setProducts(data.products || []);
         setDirtyProductKeys([]);
         setDeletedProductKeys([]);
@@ -2209,13 +2290,7 @@ export default function AdminPage() {
       const res = await fetch(`/api/admin/product-images?week=${encodeURIComponent(week)}&code=${encodeURIComponent(code)}`, {
         cache: 'no-store',
       });
-      const rawText = await res.text();
-      let data: any = null;
-      try {
-        data = rawText ? JSON.parse(rawText) : null;
-      } catch {
-        throw new Error(rawText || `서버 응답 해석 실패 (${res.status})`);
-      }
+      const data = await readJsonResponse(res, '이미지 목록 새로고침 실패');
       if (data?.success && Array.isArray(data.images)) {
         applyProductImagesLocally(code, data.images);
       }
@@ -2245,20 +2320,14 @@ export default function AdminPage() {
           ...payload,
         }),
       });
-      const rawText = await res.text();
-      let data: any = null;
-      try {
-        data = rawText ? JSON.parse(rawText) : null;
-      } catch {
-        throw new Error(rawText || `서버 응답 해석 실패 (${res.status})`);
-      }
+      const data = await readJsonResponse(res, '이미지 반영 실패');
       if (!data.success) {
         alert(data.message || '이미지 반영 중 오류가 발생했습니다.');
         return;
       }
       const nextImages = Array.isArray(data.images) ? data.images : [];
       applyProductImagesLocally(code, nextImages);
-      setCacheBuster(Date.now());
+      setCacheBuster((value) => value + 1);
       if (data.warning) {
         alert(data.warning);
       }
@@ -2298,7 +2367,12 @@ export default function AdminPage() {
   const handleManagedUploadFiles = (fileList: File[]) => {
     if (!managingProduct || fileList.length === 0) return;
     setImageDropActive(false);
-    handleImageUpload(managingProduct.주차, managingProduct.임시코드 || managingProduct.상품명, fileList);
+    handleImageUpload(
+      managingProduct.주차,
+      managingProduct.임시코드 || managingProduct.상품명,
+      fileList,
+      managingImages,
+    );
   };
 
   const loadCloudSyncStatus = async () => {
@@ -3273,24 +3347,23 @@ export default function AdminPage() {
                   파일 선택 또는 여기로 끌어놓기
                 </div>
                 <div className="mt-3">
-                  <button
-                    type="button"
-                    disabled={imageActionLoading}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!imageActionLoading) imageUploadInputRef.current?.click();
-                    }}
-                    className="text-xs border border-neutral-300 bg-white px-4 py-2 text-neutral-800 hover:bg-neutral-100 disabled:opacity-40"
+                  <label
+                    htmlFor="managed-image-upload-input"
+                    onClick={(e) => e.stopPropagation()}
+                    className={`inline-block text-xs border border-neutral-300 bg-white px-4 py-2 text-neutral-800 hover:bg-neutral-100 ${
+                      imageActionLoading ? 'opacity-40 pointer-events-none' : 'cursor-pointer'
+                    }`}
                   >
                     파일 선택
-                  </button>
+                  </label>
                 </div>
                 <input
+                  id="managed-image-upload-input"
                   ref={imageUploadInputRef}
                   type="file"
                   accept="image/*"
                   multiple
-                  className="hidden"
+                  className="sr-only"
                   onClick={(e) => {
                     e.stopPropagation();
                   }}
@@ -3346,15 +3419,22 @@ export default function AdminPage() {
                     >
                       <div className="aspect-[3/4] bg-neutral-50">
                         <img
-                          src={getCachedDetailImageUrl(managingProduct, imageName)}
+                          src={withCacheBuster(getCachedDetailImageUrl(managingProduct, imageName))}
                           alt=""
-                          draggable={false}
-                          onDragStart={(e) => e.preventDefault()}
-                          className="w-full h-full object-cover pointer-events-none"
-                          onError={(event) => useImageFallbacks(event, [
-                            getEncodedOptimizedDetailImageUrl(managingProduct, imageName),
-                            getLegacyDetailImageUrl(managingProduct, imageName),
-                            getApiImageUrl(managingProduct, imageName),
+                          draggable={!imageActionLoading}
+                          onDragStart={(e) => {
+                            if (imageActionLoading) {
+                              e.preventDefault();
+                              return;
+                            }
+                            setDraggedImageName(imageName);
+                            setDragOverImageName(imageName);
+                          }}
+                          className="w-full h-full object-cover"
+                          onError={(event) => applyImageFallbacks(event, [
+                            withCacheBuster(getEncodedOptimizedDetailImageUrl(managingProduct, imageName)),
+                            withCacheBuster(getLegacyDetailImageUrl(managingProduct, imageName)),
+                            withCacheBuster(getApiImageUrl(managingProduct, imageName)),
                           ])}
                         />
                       </div>
