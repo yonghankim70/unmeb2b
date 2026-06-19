@@ -25,6 +25,9 @@ jobs:
       CI: "true"
       NEXT_TELEMETRY_DISABLED: "1"
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      NEXT_PUBLIC_R2_IMAGE_BASE_URL: "https://pub-6bcee8668c3a45759ba8275c107e83fd.r2.dev"
+      NEXT_PUBLIC_TELEGRAM_URL: "https://t.me/unme802"
+      NEXT_PUBLIC_COMPANY_PHONE: "010-4481-7802"
 
     steps:
       - name: Checkout
