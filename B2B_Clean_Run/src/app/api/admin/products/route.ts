@@ -3,7 +3,9 @@ import { readExcelData, saveProducts, Product, readGlobalSettings, writeGlobalSe
 import { isAdminAuthenticated } from '@/lib/adminAuth';
 import { isCloudDbEnabled, queryD1 } from '@/lib/cloudflareD1';
 import {
+  deleteCloudCategories,
   deleteCloudProducts,
+  readCloudCategories,
   readCloudGlobalSettings,
   readCloudMasterData,
   writeCloudCategories,
@@ -34,6 +36,28 @@ function findDuplicateProductCodes(products: Product[]): string[] {
       seen.add(code);
     }
   }
+  return [...duplicates];
+}
+
+function categoryKey(category: any): string {
+  return String(category?.카테고리 || '').trim();
+}
+
+function findDuplicateCategoryNames(categories: any[]): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+
+  for (const category of categories) {
+    const key = categoryKey(category);
+    if (!key) continue;
+    const normalized = key.toLowerCase();
+    if (seen.has(normalized)) {
+      duplicates.add(key);
+    } else {
+      seen.add(normalized);
+    }
+  }
+
   return [...duplicates];
 }
 
@@ -176,8 +200,40 @@ export async function POST(request: NextRequest) {
     }
 
     if (categories && Array.isArray(categories)) {
+      const duplicateCategoryNames = findDuplicateCategoryNames(categories);
+      if (duplicateCategoryNames.length > 0) {
+        return NextResponse.json({
+          success: false,
+          message: `중복 카테고리명이 있어 저장을 중단했습니다: ${duplicateCategoryNames.join(', ')}`,
+        }, { status: 400 });
+      }
+
       if (isCloudMode) {
-        await writeCloudCategories(categories);
+        const currentCategories = await readCloudCategories();
+        const incomingNames = new Set(categories.map(categoryKey).filter(Boolean).map((name: string) => name.toLowerCase()));
+        const deletedCategoryNames = currentCategories
+          .map(categoryKey)
+          .filter((name) => name && !incomingNames.has(name.toLowerCase()));
+
+        if (currentCategories.length > 0 && incomingNames.size === 0) {
+          return NextResponse.json({
+            success: false,
+            message: `카테고리 저장이 차단되었습니다. 기존 ${currentCategories.length}개 카테고리를 빈 목록으로 만들 수 없습니다.`,
+          }, { status: 409 });
+        }
+
+        const largeDeleteLimit = Math.max(2, Math.floor(currentCategories.length * 0.4));
+        if (deletedCategoryNames.length > largeDeleteLimit) {
+          return NextResponse.json({
+            success: false,
+            message: `카테고리 삭제가 차단되었습니다. 현재 ${currentCategories.length}개 중 ${deletedCategoryNames.length}개 삭제 요청입니다.`,
+          }, { status: 409 });
+        }
+
+        await writeCloudCategories(categories, false);
+        if (deletedCategoryNames.length > 0) {
+          await deleteCloudCategories(deletedCategoryNames);
+        }
       } else {
         const success = saveCategories(categories);
         if (!success) {

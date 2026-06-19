@@ -56,6 +56,7 @@ type PaymentPayloadRow = PayloadRow & {
   payment_at?: string;
   amount?: number;
 };
+type NamedPayloadRow = PayloadRow & { name?: string };
 type SettingRow = { key: string; value: string };
 type D1WriteQuery = { sql: string; params?: unknown[] };
 
@@ -160,6 +161,38 @@ function normalizePayment(payment: PaymentLog, row?: PaymentPayloadRow): Payment
     입금방식: payment.입금방식 || '',
     입금자: payment.입금자 || '',
     비고: payment.비고 || '',
+  };
+}
+
+function normalizeCategory(category: CategoryMaster, row?: NamedPayloadRow): CategoryMaster {
+  return {
+    ...category,
+    카테고리: String(category.카테고리 || row?.name || '').trim(),
+    등급: category.등급 || 'C',
+    환율: Number(category.환율 || 0),
+    물류비: Number(category.물류비 || 0),
+    마진율: category.마진율,
+    S등급비율: category.S등급비율,
+    A등급비율: category.A등급비율,
+    B등급비율: category.B등급비율,
+    C등급비율: category.C등급비율,
+    W등급비율: category.W등급비율,
+  };
+}
+
+function normalizeItem(item: ItemMaster, row?: NamedPayloadRow): ItemMaster {
+  return {
+    ...item,
+    아이템: String(item.아이템 || row?.name || '').trim(),
+    표기: item.표기 || '',
+  };
+}
+
+function normalizeColor(color: ColorMaster, row?: NamedPayloadRow): ColorMaster {
+  return {
+    ...color,
+    컬러: String(color.컬러 || row?.name || '').trim(),
+    표기컬러: color.표기컬러 || '',
   };
 }
 
@@ -585,28 +618,44 @@ export async function writeCloudGlobalSettings(settings: GlobalSettings): Promis
 
 export async function readCloudMasterData(): Promise<CloudMasterData> {
   await ensureCloudSchema();
-  const [products, customers, itemRows, colorRows, categoryRows] = await Promise.all([
+  const [products, customers, items, colors, categories] = await Promise.all([
     readCloudProducts(),
     readCloudCustomers(),
-    queryD1<PayloadRow>('SELECT payload FROM items ORDER BY name ASC'),
-    queryD1<PayloadRow>('SELECT payload FROM colors ORDER BY name ASC'),
-    queryD1<PayloadRow>('SELECT payload FROM categories ORDER BY name ASC'),
+    readCloudItems(),
+    readCloudColors(),
+    readCloudCategories(),
   ]);
 
   return {
     products,
     customers,
-    items: itemRows.map((row) => parsePayload<ItemMaster>(row, {} as ItemMaster)),
-    colors: colorRows.map((row) => parsePayload<ColorMaster>(row, {} as ColorMaster)),
-    categories: categoryRows.map((row) => parsePayload<CategoryMaster>(row, {} as CategoryMaster)),
+    items,
+    colors,
+    categories,
   };
 }
 
-export async function writeCloudCategories(categories: CategoryMaster[]): Promise<void> {
+export async function readCloudCategories(): Promise<CategoryMaster[]> {
   await ensureCloudSchema();
-  const queries: D1WriteQuery[] = [{ sql: 'DELETE FROM categories' }];
+  const rows = await queryD1<NamedPayloadRow>('SELECT name, payload FROM categories ORDER BY name ASC');
+  return rows
+    .map((row) => normalizeCategory(parsePayload<CategoryMaster>(row, {} as CategoryMaster), row))
+    .filter((category) => Boolean(category.카테고리));
+}
+
+export async function writeCloudCategories(categories: CategoryMaster[], replaceAll = false): Promise<void> {
+  await ensureCloudSchema();
+  const queries: D1WriteQuery[] = [];
+  if (replaceAll) {
+    if (process.env.ALLOW_CLOUD_REPLACE_ALL_MASTER_TABLES !== 'true') {
+      throw new Error('운영 D1 카테고리 전체 덮어쓰기는 차단되어 있습니다. 수정/추가/삭제분만 반영해야 합니다.');
+    }
+    queries.push({ sql: 'DELETE FROM categories' });
+  }
+
   const now = new Date().toISOString();
   const rows = categories
+    .map((category) => normalizeCategory(category))
     .filter((category) => Boolean(category.카테고리))
     .map((category) => [category.카테고리, JSON.stringify(category), now]);
   for (const chunk of chunkArray(rows, 120)) {
@@ -618,11 +667,40 @@ export async function writeCloudCategories(categories: CategoryMaster[]): Promis
   await runWriteBatch(queries);
 }
 
-export async function writeCloudItems(items: ItemMaster[]): Promise<void> {
+export async function deleteCloudCategories(categoryNames: string[]): Promise<void> {
   await ensureCloudSchema();
-  const queries: D1WriteQuery[] = [{ sql: 'DELETE FROM items' }];
+  const names = uniqueNonEmpty(categoryNames);
+  const queries: D1WriteQuery[] = [];
+  for (const chunk of chunkArray(names, 80)) {
+    queries.push({
+      sql: `DELETE FROM categories WHERE name IN (${chunk.map(() => '?').join(', ')})`,
+      params: chunk,
+    });
+  }
+  await runWriteBatch(queries);
+}
+
+export async function readCloudItems(): Promise<ItemMaster[]> {
+  await ensureCloudSchema();
+  const rows = await queryD1<NamedPayloadRow>('SELECT name, payload FROM items ORDER BY name ASC');
+  return rows
+    .map((row) => normalizeItem(parsePayload<ItemMaster>(row, {} as ItemMaster), row))
+    .filter((item) => Boolean(item.아이템));
+}
+
+export async function writeCloudItems(items: ItemMaster[], replaceAll = false): Promise<void> {
+  await ensureCloudSchema();
+  const queries: D1WriteQuery[] = [];
+  if (replaceAll) {
+    if (process.env.ALLOW_CLOUD_REPLACE_ALL_MASTER_TABLES !== 'true') {
+      throw new Error('운영 D1 아이템 전체 덮어쓰기는 차단되어 있습니다. 수정/추가분만 반영해야 합니다.');
+    }
+    queries.push({ sql: 'DELETE FROM items' });
+  }
+
   const now = new Date().toISOString();
   const rows = items
+    .map((item) => normalizeItem(item))
     .filter((item) => Boolean(item.아이템))
     .map((item) => [item.아이템, JSON.stringify(item), now]);
   for (const chunk of chunkArray(rows, 120)) {
@@ -634,11 +712,27 @@ export async function writeCloudItems(items: ItemMaster[]): Promise<void> {
   await runWriteBatch(queries);
 }
 
-export async function writeCloudColors(colors: ColorMaster[]): Promise<void> {
+export async function readCloudColors(): Promise<ColorMaster[]> {
   await ensureCloudSchema();
-  const queries: D1WriteQuery[] = [{ sql: 'DELETE FROM colors' }];
+  const rows = await queryD1<NamedPayloadRow>('SELECT name, payload FROM colors ORDER BY name ASC');
+  return rows
+    .map((row) => normalizeColor(parsePayload<ColorMaster>(row, {} as ColorMaster), row))
+    .filter((color) => Boolean(color.컬러));
+}
+
+export async function writeCloudColors(colors: ColorMaster[], replaceAll = false): Promise<void> {
+  await ensureCloudSchema();
+  const queries: D1WriteQuery[] = [];
+  if (replaceAll) {
+    if (process.env.ALLOW_CLOUD_REPLACE_ALL_MASTER_TABLES !== 'true') {
+      throw new Error('운영 D1 컬러 전체 덮어쓰기는 차단되어 있습니다. 수정/추가분만 반영해야 합니다.');
+    }
+    queries.push({ sql: 'DELETE FROM colors' });
+  }
+
   const now = new Date().toISOString();
   const rows = colors
+    .map((color) => normalizeColor(color))
     .filter((color) => Boolean(color.컬러))
     .map((color) => [color.컬러, JSON.stringify(color), now]);
   for (const chunk of chunkArray(rows, 120)) {

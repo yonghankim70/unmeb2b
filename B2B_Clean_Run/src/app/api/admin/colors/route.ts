@@ -2,22 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readExcelData, saveColorsToExcel, ColorMaster } from '@/lib/db';
 import { isAdminAuthenticated } from '@/lib/adminAuth';
 import { isCloudDbEnabled, queryD1 } from '@/lib/cloudflareD1';
+import { readCloudColors } from '@/lib/cloudData';
 
 export const dynamic = 'force-dynamic';
-
-async function readCloudColors(): Promise<ColorMaster[]> {
-  const rows = await queryD1<{ payload?: string }>('SELECT payload FROM colors ORDER BY name ASC');
-  return rows
-    .map((row) => {
-      if (!row?.payload) return null;
-      try {
-        return JSON.parse(row.payload) as ColorMaster;
-      } catch {
-        return null;
-      }
-    })
-    .filter((row): row is ColorMaster => !!row && !!row.컬러);
-}
 
 export async function POST(request: NextRequest) {
   try {

@@ -14,6 +14,13 @@ import {
 
 const DEFAULT_CUSTOMER_GRADE_OPTIONS = ['S', 'A', 'B', 'C', 'W', '일반등급'];
 
+function mergeCustomerGradeOptions(options: unknown): string[] {
+  const serverOptions = Array.isArray(options)
+    ? options.map((option) => String(option || '').trim()).filter(Boolean)
+    : [];
+  return Array.from(new Set([...DEFAULT_CUSTOMER_GRADE_OPTIONS, ...serverOptions]));
+}
+
 function getCategoryFromItem(itemName: string): string {
   if (!itemName) return '';
   const name = itemName.trim().toLowerCase();
@@ -1285,7 +1292,7 @@ export default function AdminPage() {
             pointOptions: data.globalSettings.pointOptions || ['오더만', '공동구매', '세일', '품절'],
             seasonOptions: data.globalSettings.seasonOptions || ['26SM', '26FA', '26WT'],
             defaultSeason: data.globalSettings.defaultSeason || '26SM',
-            customerGradeOptions: data.globalSettings.customerGradeOptions || DEFAULT_CUSTOMER_GRADE_OPTIONS
+            customerGradeOptions: mergeCustomerGradeOptions(data.globalSettings.customerGradeOptions)
           });
           if (data.globalSettings.columnWidths) {
             setColumnWidths(data.globalSettings.columnWidths);
@@ -1321,7 +1328,7 @@ export default function AdminPage() {
     setSettingsPointOptions(globalSettings.pointOptions || ['오더만', '공동구매', '세일', '품절']);
     setSettingsSeasonOptions(globalSettings.seasonOptions || ['26SM', '26FA', '26WT']);
     setSettingsDefaultSeason(globalSettings.defaultSeason || '26SM');
-    setSettingsCustomerGradeOptions(globalSettings.customerGradeOptions || DEFAULT_CUSTOMER_GRADE_OPTIONS);
+    setSettingsCustomerGradeOptions(mergeCustomerGradeOptions(globalSettings.customerGradeOptions));
     setNewCatName('');
     setNewCatExchange(globalSettings.exchange || 230);
     setNewCatLogistics(globalSettings.logistics || 1200);
@@ -1422,7 +1429,7 @@ export default function AdminPage() {
         pointOptions: settingsPointOptions,
         seasonOptions: settingsSeasonOptions,
         defaultSeason: settingsDefaultSeason,
-        customerGradeOptions: settingsCustomerGradeOptions.length > 0 ? settingsCustomerGradeOptions : DEFAULT_CUSTOMER_GRADE_OPTIONS,
+        customerGradeOptions: mergeCustomerGradeOptions(settingsCustomerGradeOptions),
         columnOrder
       };
       
