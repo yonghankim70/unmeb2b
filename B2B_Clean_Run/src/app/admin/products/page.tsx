@@ -116,6 +116,26 @@ interface UploadVariantManifestItem {
   width: number;
 }
 
+interface FolderSyncFileEntry {
+  file: File;
+  relativePath: string;
+}
+
+interface FolderSyncCandidate {
+  code: string;
+  week: string;
+  imageFiles: File[];
+  textFiles: File[];
+}
+
+interface ImageUploadResult {
+  uploadedCount: number;
+  failedCount: number;
+  failedMessages: string[];
+}
+
+const FOLDER_SYNC_IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
+
 function cleanImageNames(names: unknown[]): string[] {
   const unique: string[] = [];
   for (const name of names) {
@@ -238,7 +258,11 @@ async function imageFileToWebp(file: File, width: number, quality: number): Prom
   });
 }
 
-async function appendCloudWebpUploadPayload(formData: FormData, files: File[]): Promise<{ uploadedNames: string[]; updatedMain: boolean }> {
+async function appendCloudWebpUploadPayload(
+  formData: FormData,
+  files: File[],
+  options: { forceMain?: boolean } = {},
+): Promise<{ uploadedNames: string[]; updatedMain: boolean }> {
   if (files.length > MAX_CLOUD_UPLOAD_IMAGES) {
     throw new Error(`운영 서버 업로드는 한 번에 최대 ${MAX_CLOUD_UPLOAD_IMAGES}장까지만 가능합니다.`);
   }
@@ -249,7 +273,7 @@ async function appendCloudWebpUploadPayload(formData: FormData, files: File[]): 
 
   for (const [index, file] of files.entries()) {
     if (!file.type.startsWith('image/')) continue;
-    const shouldUpdateMain = isMainUploadFileName(file.name);
+    const shouldUpdateMain = isMainUploadFileName(file.name) || (Boolean(options.forceMain) && index === 0);
     uploadedNames.push(file.name);
 
     for (const width of CLOUD_DETAIL_WIDTHS) {
@@ -278,12 +302,98 @@ async function appendCloudWebpUploadPayload(formData: FormData, files: File[]): 
   return { uploadedNames, updatedMain };
 }
 
+function normalizeFolderSyncPath(value: string): string[] {
+  return String(value || '')
+    .replace(/\\/g, '/')
+    .split('/')
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+}
+
+function naturalCompare(left: string, right: string): number {
+  return left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+function fileExtension(fileName: string): string {
+  const match = String(fileName || '').toLowerCase().match(/\.[^.]+$/);
+  return match ? match[0] : '';
+}
+
+function isFolderSyncImageFile(fileName: string): boolean {
+  return FOLDER_SYNC_IMAGE_EXTENSIONS.has(fileExtension(fileName));
+}
+
+function cleanBuyerInfoText(fileName: string, text: string): string {
+  const fromText = text.trim().split(/\r?\n/).map((line) => line.trim()).filter(Boolean).join(' / ');
+  if (fromText) return fromText;
+  return fileName
+    .replace(/\.[^.]+$/, '')
+    .replace(/^\(상점명\)\s*/i, '')
+    .trim();
+}
+
+async function readEntriesFromDirectoryReader(reader: any): Promise<any[]> {
+  const entries: any[] = [];
+  while (true) {
+    const batch = await new Promise<any[]>((resolve, reject) => {
+      reader.readEntries(resolve, reject);
+    });
+    if (!batch.length) break;
+    entries.push(...batch);
+  }
+  return entries;
+}
+
+async function collectFilesFromEntry(entry: any, basePath = ''): Promise<FolderSyncFileEntry[]> {
+  if (!entry) return [];
+
+  if (entry.isFile) {
+    const file = await new Promise<File>((resolve, reject) => {
+      entry.file(resolve, reject);
+    });
+    return [{ file, relativePath: `${basePath}${file.name}` }];
+  }
+
+  if (entry.isDirectory) {
+    const reader = entry.createReader();
+    const entries = await readEntriesFromDirectoryReader(reader);
+    const nested = await Promise.all(
+      entries.map((child) => collectFilesFromEntry(child, `${basePath}${entry.name}/`))
+    );
+    return nested.flat();
+  }
+
+  return [];
+}
+
+async function collectFolderSyncFilesFromDrop(items: DataTransferItemList, files: FileList): Promise<FolderSyncFileEntry[]> {
+  const entries: FolderSyncFileEntry[] = [];
+  const itemList = Array.from(items || []);
+
+  for (const item of itemList) {
+    const entry = typeof (item as any).webkitGetAsEntry === 'function'
+      ? (item as any).webkitGetAsEntry()
+      : null;
+    if (entry) {
+      entries.push(...await collectFilesFromEntry(entry));
+    }
+  }
+
+  if (entries.length > 0) return entries;
+
+  return Array.from(files || []).map((file) => ({
+    file,
+    relativePath: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
+  }));
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const pathname = usePathname();
   const hasInitializedProductViewRef = useRef(false);
   const productGridAnchorRef = useRef<HTMLDivElement>(null);
   const imageUploadInputRef = useRef<HTMLInputElement>(null);
+  const folderSyncInputRef = useRef<HTMLInputElement>(null);
   
   // Horizontal Scroll Sync Refs
   const topScrollRef = useRef<HTMLDivElement>(null);
@@ -940,6 +1050,9 @@ export default function AdminPage() {
   const [sortManagerSaving, setSortManagerSaving] = useState(false);
   const [draggedSortProductKey, setDraggedSortProductKey] = useState<string | null>(null);
   const [dragOverSortProductKey, setDragOverSortProductKey] = useState<string | null>(null);
+  const [folderSyncing, setFolderSyncing] = useState(false);
+  const [folderSyncStatus, setFolderSyncStatus] = useState('');
+  const [folderSyncDropActive, setFolderSyncDropActive] = useState(false);
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
   const [newProductForm, setNewProductForm] = useState({
     상품명: '',
@@ -1004,8 +1117,20 @@ export default function AdminPage() {
     setManagingImages(cleanImages);
   };
 
-  const handleImageUpload = async (week: string, code: string, files: File[], knownImages: string[] = []) => {
+  const handleImageUpload = async (
+    week: string,
+    code: string,
+    files: File[],
+    knownImages: string[] = [],
+    options: { silent?: boolean; forceFirstImageAsMain?: boolean } = {},
+  ): Promise<ImageUploadResult> => {
     const key = `${week}-${code}`;
+    const shouldAlert = !options.silent;
+    const result: ImageUploadResult = {
+      uploadedCount: 0,
+      failedCount: 0,
+      failedMessages: [],
+    };
     setUploadingState(prev => ({ ...prev, [key]: true }));
 
     try {
@@ -1023,12 +1148,19 @@ export default function AdminPage() {
         });
         const data = await readJsonResponse(res, '업로드 실패');
         if (!data?.success) {
-          alert(`업로드 실패: ${data?.message || `서버 오류 (${res.status})`}`);
-          return;
+          result.failedCount = files.length;
+          result.failedMessages.push(data?.message || `서버 오류 (${res.status})`);
+          if (shouldAlert) {
+            alert(`업로드 실패: ${data?.message || `서버 오류 (${res.status})`}`);
+          }
+          return result;
         }
-        alert(`${code} 상품의 이미지 ${Number(data.uploadedCount || files.length || 0)}개가 업로드되었습니다.`);
+        result.uploadedCount = Number(data.uploadedCount || files.length || 0);
+        if (shouldAlert) {
+          alert(`${code} 상품의 이미지 ${result.uploadedCount}개가 업로드되었습니다.`);
+        }
         setCacheBuster((value) => value + 1);
-        return;
+        return result;
       }
 
       let currentImages = getKnownImagesForProduct(code, knownImages);
@@ -1045,7 +1177,9 @@ export default function AdminPage() {
           formData.append('code', code);
           formData.append('existingImages', JSON.stringify(currentImages));
 
-          const prepared = await appendCloudWebpUploadPayload(formData, [file]);
+          const prepared = await appendCloudWebpUploadPayload(formData, [file], {
+            forceMain: Boolean(options.forceFirstImageAsMain && uploadedFiles.length === 0 && currentImages.length === 0),
+          });
           const res = await fetch('/api/admin/upload-image', {
             method: 'POST',
             body: formData,
@@ -1072,18 +1206,33 @@ export default function AdminPage() {
       }
 
       const uniqueUploadedFiles = cleanImageNames(uploadedFiles);
+      result.uploadedCount = uniqueUploadedFiles.length;
+      result.failedCount = failedFiles.length;
+      result.failedMessages = failedFiles;
       if (uniqueUploadedFiles.length > 0) {
         applyProductImagesLocally(code, currentImages);
         const mainMessage = updatedMain ? '\n대표 이미지도 함께 갱신되었습니다.' : '';
         const failMessage = failedFiles.length > 0 ? `\n\n실패 ${failedFiles.length}장:\n${failedFiles.slice(0, 5).join('\n')}` : '';
-        alert(`${code} 상품의 이미지 ${uniqueUploadedFiles.length}개가 업로드되었습니다.${mainMessage}${failMessage}`);
+        if (shouldAlert) {
+          alert(`${code} 상품의 이미지 ${uniqueUploadedFiles.length}개가 업로드되었습니다.${mainMessage}${failMessage}`);
+        }
       } else if (failedFiles.length > 0) {
-        alert(`업로드 실패:\n${failedFiles.slice(0, 6).join('\n')}`);
+        if (shouldAlert) {
+          alert(`업로드 실패:\n${failedFiles.slice(0, 6).join('\n')}`);
+        }
       } else {
-        alert('업로드할 이미지 파일이 없습니다.');
+        if (shouldAlert) {
+          alert('업로드할 이미지 파일이 없습니다.');
+        }
       }
+      return result;
     } catch (err: any) {
-      alert(`업로드 에러: ${err.message}`);
+      result.failedCount = Math.max(result.failedCount, files.length - result.uploadedCount);
+      result.failedMessages.push(err.message);
+      if (shouldAlert) {
+        alert(`업로드 에러: ${err.message}`);
+      }
+      return result;
     } finally {
       setUploadingState(prev => ({ ...prev, [key]: false }));
     }
@@ -1733,6 +1882,265 @@ export default function AdminPage() {
     } finally {
       setSyncing(false);
     }
+  };
+
+  const getNextFolderSyncTime = () => {
+    const kstOffset = 9 * 60 * 60 * 1000;
+    const nowKst = new Date(Date.now() + kstOffset);
+    const mm = String(nowKst.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(nowKst.getUTCDate()).padStart(2, '0');
+    const todayPrefix = `${mm}${dd}-`;
+    const maxSeq = products.reduce((max, product) => {
+      const syncTime = String(product.동기화시간 || '');
+      if (!syncTime.startsWith(todayPrefix)) return max;
+      const seq = Number(syncTime.slice(todayPrefix.length));
+      return Number.isFinite(seq) && seq > max ? seq : max;
+    }, 0);
+    return `${todayPrefix}${maxSeq + 1}`;
+  };
+
+  const inferItemFromProductCode = (code: string) => {
+    const normalizedCode = code.toLowerCase().trim();
+    const sortedItems = [...itemsList].sort((left, right) => {
+      const leftAbbr = left.아이템.match(/^([^(]+)/)?.[1] || '';
+      const rightAbbr = right.아이템.match(/^([^(]+)/)?.[1] || '';
+      return rightAbbr.length - leftAbbr.length;
+    });
+
+    for (const item of sortedItems) {
+      const match = item.아이템.match(/^([^(]+)/);
+      const abbr = match?.[1]?.toLowerCase().trim();
+      if (abbr && normalizedCode.endsWith(abbr)) {
+        return item.아이템;
+      }
+    }
+    return '';
+  };
+
+  const buildFolderSyncCandidates = (entries: FolderSyncFileEntry[]) => {
+    const fallbackWeek = selectedWeeks.length === 1 ? selectedWeeks[0] : '';
+    const grouped = new Map<string, {
+      code: string;
+      week: string;
+      imageEntries: FolderSyncFileEntry[];
+      textEntries: FolderSyncFileEntry[];
+    }>();
+
+    for (const entry of entries) {
+      const segments = normalizeFolderSyncPath(entry.relativePath || entry.file.name);
+      if (segments.length < 2) continue;
+
+      const fileName = segments[segments.length - 1] || entry.file.name;
+      const weekIndex = segments.findIndex((segment) => /^\d{2}[a-zA-Z]+$/.test(segment));
+      const productIndex = weekIndex >= 0 ? weekIndex + 1 : segments.length - 2;
+      const code = String(segments[productIndex] || '').trim().replace(/_temp_refresh$/i, '');
+      if (!code || code.startsWith('.')) continue;
+
+      const week = weekIndex >= 0 ? segments[weekIndex] : fallbackWeek;
+      if (!week) continue;
+
+      const key = `${week}__${code}`;
+      if (!grouped.has(key)) {
+        grouped.set(key, { code, week, imageEntries: [], textEntries: [] });
+      }
+
+      const target = grouped.get(key)!;
+      const ext = fileExtension(fileName);
+      if (isFolderSyncImageFile(fileName)) {
+        target.imageEntries.push(entry);
+      } else if (ext === '.txt') {
+        target.textEntries.push(entry);
+      }
+    }
+
+    return Array.from(grouped.values())
+      .map((candidate) => ({
+        code: candidate.code,
+        week: candidate.week,
+        imageFiles: candidate.imageEntries
+          .sort((left, right) => naturalCompare(left.file.name, right.file.name))
+          .map((entry) => entry.file),
+        textFiles: candidate.textEntries
+          .sort((left, right) => naturalCompare(left.file.name, right.file.name))
+          .map((entry) => entry.file),
+      }))
+      .sort((left, right) => naturalCompare(left.code, right.code));
+  };
+
+  const readBuyerInfoFromCandidate = async (candidate: FolderSyncCandidate) => {
+    const textFile = candidate.textFiles[0];
+    if (!textFile) return '';
+    try {
+      return cleanBuyerInfoText(textFile.name, await textFile.text());
+    } catch {
+      return cleanBuyerInfoText(textFile.name, '');
+    }
+  };
+
+  const createPendingProductFromFolder = async (candidate: FolderSyncCandidate, syncTime: string): Promise<Product> => {
+    const buyerInfo = await readBuyerInfoFromCandidate(candidate);
+    return {
+      업로드일자: '',
+      노출여부: 'n',
+      노출제외: '',
+      쥔장장바구니노출: 'y',
+      카테고리: '신상',
+      주차: candidate.week,
+      상품명: candidate.code,
+      임시코드: candidate.code,
+      아이템: inferItemFromProductCode(candidate.code),
+      컬러: '',
+      사이즈: 'free',
+      단가: 0,
+      환율: Number(globalSettings.exchange || 230),
+      물류비: Number(globalSettings.logistics || 1200),
+      원가: 0,
+      도매가: 0,
+      S등급가: 0,
+      A등급: 0,
+      B등급: 0,
+      C등급: 0,
+      W등급가: 0,
+      사입처: buyerInfo,
+      중국코드: '',
+      신규등록대기: true,
+      추천: 0,
+      시즌: globalSettings.defaultSeason || '26SM',
+      등급할인제외: '',
+      동기화시간: syncTime,
+      상세이미지목록: [],
+    };
+  };
+
+  const handleFolderSyncEntries = async (entries: FolderSyncFileEntry[]) => {
+    if (folderSyncing) return;
+
+    const candidates = buildFolderSyncCandidates(entries);
+    if (candidates.length === 0) {
+      alert(selectedWeeks.length === 1
+        ? '가져올 상품 폴더를 찾지 못했습니다. 주차 폴더 또는 상품 폴더를 선택해 주세요.'
+        : '가져올 상품 폴더를 찾지 못했습니다. 주차 폴더를 선택하거나, 상단 필터에서 주차를 하나 선택한 뒤 상품 폴더를 선택해 주세요.');
+      return;
+    }
+
+    const existingCodes = new Set(products.map((product) => getProductKey(product).toLowerCase()).filter(Boolean));
+    const newCandidates = candidates.filter((candidate) => !existingCodes.has(candidate.code.toLowerCase()));
+    const skippedCount = candidates.length - newCandidates.length;
+
+    if (newCandidates.length === 0) {
+      alert(`신규 상품이 없습니다.\n선택 상품: ${candidates.length}개\n이미 등록됨: ${skippedCount}개`);
+      return;
+    }
+
+    const imageCount = newCandidates.reduce((sum, candidate) => sum + candidate.imageFiles.length, 0);
+    const sample = newCandidates.slice(0, 8).map((candidate) => `${candidate.code} (${candidate.imageFiles.length}장)`).join(', ');
+    if (!confirm([
+      '신규 폴더 동기화',
+      '',
+      `신규 등록 대기 생성: ${newCandidates.length}개`,
+      `이미지 업로드 예정: ${imageCount}장`,
+      skippedCount > 0 ? `이미 등록되어 건너뜀: ${skippedCount}개` : '',
+      sample ? `\n예시: ${sample}${newCandidates.length > 8 ? ` 외 ${newCandidates.length - 8}개` : ''}` : '',
+      '',
+      '선택한 상품을 신규 등록 대기 탭으로 가져올까요?'
+    ].filter(Boolean).join('\n'))) {
+      return;
+    }
+
+    setFolderSyncing(true);
+    setFolderSyncStatus('신규 상품 후보를 준비하고 있습니다.');
+
+    const syncTime = getNextFolderSyncTime();
+    let addedCount = 0;
+    let uploadedCount = 0;
+    let failedCount = 0;
+    const failedMessages: string[] = [];
+
+    try {
+      for (const [index, candidate] of newCandidates.entries()) {
+        setFolderSyncStatus(`${index + 1}/${newCandidates.length} ${candidate.code} 신규 등록 대기 생성 중...`);
+        const product = await createPendingProductFromFolder(candidate, syncTime);
+        const addRes = await fetch('/api/admin/add-product', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(product),
+        });
+        const addData = await readJsonResponse(addRes, `${candidate.code} 신규 등록 실패`);
+        if (!addData?.success) {
+          failedCount += 1;
+          failedMessages.push(`${candidate.code}: ${addData?.message || `서버 오류 (${addRes.status})`}`);
+          continue;
+        }
+
+        addedCount += 1;
+        if (candidate.imageFiles.length > 0) {
+          setFolderSyncStatus(`${index + 1}/${newCandidates.length} ${candidate.code} 이미지 업로드 중 (${candidate.imageFiles.length}장)...`);
+          const uploadResult = await handleImageUpload(candidate.week, candidate.code, candidate.imageFiles, [], {
+            silent: true,
+            forceFirstImageAsMain: true,
+          });
+          uploadedCount += uploadResult.uploadedCount;
+          failedCount += uploadResult.failedCount;
+          failedMessages.push(...uploadResult.failedMessages.map((message) => `${candidate.code}: ${message}`));
+        }
+      }
+
+      setSearchTerm('');
+      setSelectedWeeks([]);
+      setSelectedCategories([]);
+      setSelectedItems([]);
+      setSelectedExposures([]);
+      setStartDateFilter('');
+      setEndDateFilter('');
+      setSortField('');
+      setSortDirection('asc');
+      setSelectedSyncTime(syncTime);
+      setActiveTab('new');
+      setSelectedKeys([]);
+      await loadData();
+      resetProductTableViewport();
+
+      const failText = failedMessages.length > 0
+        ? `\n\n확인 필요 ${failedMessages.length}건:\n${failedMessages.slice(0, 8).join('\n')}${failedMessages.length > 8 ? `\n외 ${failedMessages.length - 8}건` : ''}`
+        : '';
+      alert(`신규 폴더 동기화 완료\n신규 등록 대기: ${addedCount}개\n이미지 업로드: ${uploadedCount}장\n건너뜀: ${skippedCount}개\n실패/확인 필요: ${failedCount}건${failText}`);
+    } catch (error: any) {
+      console.error(error);
+      alert(`신규 폴더 동기화 실패: ${error.message}`);
+    } finally {
+      setFolderSyncing(false);
+      setFolderSyncStatus('');
+      setFolderSyncDropActive(false);
+    }
+  };
+
+  const handleOpenFolderSyncPicker = () => {
+    if (folderSyncing) return;
+    const input = folderSyncInputRef.current;
+    if (!input) return;
+    input.value = '';
+    input.setAttribute('webkitdirectory', '');
+    input.setAttribute('directory', '');
+    input.setAttribute('multiple', '');
+    input.click();
+  };
+
+  const handleFolderSyncInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(event.currentTarget.files || []);
+    const entries = selectedFiles.map((file) => ({
+      file,
+      relativePath: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
+    }));
+    void handleFolderSyncEntries(entries);
+  };
+
+  const handleFolderSyncDrop = async (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setFolderSyncDropActive(false);
+    if (folderSyncing) return;
+    const entries = await collectFolderSyncFilesFromDrop(event.dataTransfer.items, event.dataTransfer.files);
+    void handleFolderSyncEntries(entries);
   };
 
   // 현재 테이블에 수정된 최종 데이터를 JSON Primary DB에 저장
@@ -2743,12 +3151,13 @@ export default function AdminPage() {
             </>
           ) : (
             <button
-              onClick={handleOpenAddProductModal}
+              onClick={handleOpenFolderSyncPicker}
+              disabled={folderSyncing}
               className="flex items-center space-x-1.5 hover:text-black transition-colors"
-              title="외부 운영에서는 로컬 폴더 스캔 대신 신규 상품 등록 창으로 D1/R2 서버에 바로 반영합니다."
+              title="Z드라이브의 주차 폴더 또는 상품 폴더를 선택해 신규 등록 대기 탭으로 가져옵니다."
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>신규 상품 동기화</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${folderSyncing ? 'animate-spin' : ''}`} />
+              <span>{folderSyncing ? '동기화 중...' : '신규 폴더 동기화'}</span>
             </button>
           )}
           
@@ -2864,11 +3273,24 @@ export default function AdminPage() {
             )}
             {!isLocalAdminHost && (
               <p className="text-[11px] text-neutral-400 font-light">
-                현재 화면은 외부 운영 관리자입니다. 신규 상품은 상단 `신규 상품 동기화`로 등록하고, 이미지는 이미지 관리에서 바로 서버에 반영합니다.
+                현재 화면은 외부 운영 관리자입니다. 신규 상품은 상단 `신규 폴더 동기화`로 Z드라이브 폴더를 선택해 신규 등록 대기에 먼저 가져옵니다.
+              </p>
+            )}
+            {folderSyncStatus && (
+              <p className="text-[11px] text-amber-700 font-medium">
+                {folderSyncStatus}
               </p>
             )}
           </div>
         </div>
+
+        <input
+          ref={folderSyncInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={handleFolderSyncInputChange}
+        />
 
         {/* 탭 네비게이션 (전체 상품 vs 신규 등록 대기) */}
         <div className="flex border-b border-neutral-200 select-none mb-1">
@@ -2903,6 +3325,41 @@ export default function AdminPage() {
 
         {/* 필터 제어 영역 (고급 6단 필터링 탑재 - 다중 선택 + 달력 + 동기화 회차 연동) */}
         <div className="bg-neutral-50 p-4 border border-neutral-100 select-none space-y-3">
+          {!isLocalAdminHost && (
+            <div
+              onDragEnter={(event) => {
+                event.preventDefault();
+                setFolderSyncDropActive(true);
+              }}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setFolderSyncDropActive(true);
+              }}
+              onDragLeave={() => setFolderSyncDropActive(false)}
+              onDrop={handleFolderSyncDrop}
+              className={`border border-dashed px-4 py-3 text-xs flex flex-col md:flex-row md:items-center md:justify-between gap-2 transition-colors ${
+                folderSyncDropActive
+                  ? 'border-black bg-white'
+                  : 'border-neutral-200 bg-white/70'
+              }`}
+            >
+              <div className="space-y-1">
+                <p className="font-bold text-neutral-800">신규 폴더 동기화</p>
+                <p className="text-[11px] text-neutral-500">
+                  주차 폴더 또는 상품 폴더를 선택/드래그하면 신규 등록 대기에 임시 저장됩니다. 저장 전까지 고객 화면에는 노출되지 않습니다.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleOpenFolderSyncPicker}
+                disabled={folderSyncing}
+                className="bg-black hover:bg-neutral-900 disabled:bg-neutral-300 text-white text-xs font-mono px-4 py-2 flex items-center justify-center gap-1.5 transition-colors select-none rounded-none shrink-0"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${folderSyncing ? 'animate-spin' : ''}`} />
+                <span>{folderSyncing ? '동기화 중...' : '폴더 선택'}</span>
+              </button>
+            </div>
+          )}
           <div className="flex gap-2">
             <button
               onClick={handleOpenAddProductModal}
