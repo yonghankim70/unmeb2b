@@ -2710,7 +2710,7 @@ export default function AdminPage() {
         
         {/* 상단 버튼들 */}
         <div className="flex items-center space-x-4">
-          {isLocalAdminHost && (
+          {isLocalAdminHost ? (
             <>
               <button
                 onClick={handleSync}
@@ -2741,6 +2741,15 @@ export default function AdminPage() {
                 <span>{cloudSyncing ? '서버 반영 중...' : '서버 반영'}</span>
               </button>
             </>
+          ) : (
+            <button
+              onClick={handleOpenAddProductModal}
+              className="flex items-center space-x-1.5 hover:text-black transition-colors"
+              title="외부 운영에서는 로컬 폴더 스캔 대신 신규 상품 등록 창으로 D1/R2 서버에 바로 반영합니다."
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>신규 상품 동기화</span>
+            </button>
           )}
           
           {isLocalAdminHost && (
@@ -2855,7 +2864,7 @@ export default function AdminPage() {
             )}
             {!isLocalAdminHost && (
               <p className="text-[11px] text-neutral-400 font-light">
-                현재 화면은 외부 운영 관리자입니다. 로컬 서버 전용 동기화/최적화 버튼은 숨김 처리되어 운영 데이터만 바로 수정합니다.
+                현재 화면은 외부 운영 관리자입니다. 신규 상품은 상단 `신규 상품 동기화`로 등록하고, 이미지는 이미지 관리에서 바로 서버에 반영합니다.
               </p>
             )}
           </div>
