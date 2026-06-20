@@ -155,6 +155,8 @@ function asNumber(value: unknown): number {
 }
 
 export function formatProduct(p: any): Product {
+  const unitPrice = asNumber(p['단가']);
+  const hasUnitPrice = unitPrice > 0;
   return {
     업로드일자: asString(p['업로드일자']),
     노출여부: asString(p['노출여부']),
@@ -167,16 +169,16 @@ export function formatProduct(p: any): Product {
     아이템: asString(p['아이템']),
     컬러: asString(p['컬러']),
     사이즈: asString(p['사이즈'] || 'free'),
-    단가: asNumber(p['단가']),
+    단가: unitPrice,
     환율: asNumber(p['환율']),
     물류비: asNumber(p['물류비']),
-    원가: asNumber(p['원가']),
-    도매가: asNumber(p['도매가']),
-    S등급가: asNumber(p['S등급가']),
-    A등급: asNumber(p['A등급']),
-    B등급: asNumber(p['B등급']),
-    C등급: asNumber(p['C등급']),
-    W등급가: asNumber(p['W등급가']),
+    원가: hasUnitPrice ? asNumber(p['원가']) : 0,
+    도매가: hasUnitPrice ? asNumber(p['도매가']) : 0,
+    S등급가: hasUnitPrice ? asNumber(p['S등급가']) : 0,
+    A등급: hasUnitPrice ? asNumber(p['A등급']) : 0,
+    B등급: hasUnitPrice ? asNumber(p['B등급']) : 0,
+    C등급: hasUnitPrice ? asNumber(p['C등급']) : 0,
+    W등급가: hasUnitPrice ? asNumber(p['W등급가']) : 0,
     사입처: asString(p['사입처']),
     중국코드: asString(p['중국코드']),
     신규등록대기: p['신규등록대기'] === undefined ? false : Boolean(p['신규등록대기']),

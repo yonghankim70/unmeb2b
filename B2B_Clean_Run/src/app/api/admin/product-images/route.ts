@@ -106,6 +106,7 @@ async function readCloudProductByCode(code: string): Promise<Product | null> {
 async function writeCloudProduct(product: Product): Promise<void> {
   const code = String(product.임시코드 || product.상품명 || '').trim();
   if (!code) throw new Error('상품 코드가 비어 있습니다.');
+  const hasUnitPrice = Number(product.단가 || 0) > 0;
 
   await queryD1(
     `INSERT OR REPLACE INTO products (code, week, name, category, item, color, price, exposure, owner_cart_visible, payload, updated_at)
@@ -117,7 +118,7 @@ async function writeCloudProduct(product: Product): Promise<void> {
       product.카테고리 || '',
       product.아이템 || '',
       product.컬러 || '',
-      Number(product.도매가 || product.단가 || 0),
+      hasUnitPrice ? Number(product.도매가 || product.단가 || 0) : 0,
       product.노출여부 || '',
       product.쥔장장바구니노출 || 'y',
       JSON.stringify(product),

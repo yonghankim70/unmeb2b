@@ -369,6 +369,7 @@ export async function writeCloudProducts(products: Product[], replaceAll = false
   const rows = products.reduce<unknown[][]>((acc, product) => {
     const code = productCode(product);
     if (!code) return acc;
+    const hasUnitPrice = Number(product.단가 || 0) > 0;
     acc.push([
         code,
         product.주차 || '',
@@ -376,7 +377,7 @@ export async function writeCloudProducts(products: Product[], replaceAll = false
         product.카테고리 || '',
         product.아이템 || '',
         product.컬러 || '',
-        Number(product.도매가 || product.단가 || 0),
+        hasUnitPrice ? Number(product.도매가 || product.단가 || 0) : 0,
         product.노출여부 || '',
         product.쥔장장바구니노출 || 'y',
         JSON.stringify(product),

@@ -606,36 +606,11 @@ export default function AdminPage() {
             onChange={(newVal) => {
               const updated = [...products];
               const row = { ...updated[globalIdx], 등급할인제외: newVal };
-              
-              const catRow = categories.find(c => c.카테고리 === row.카테고리);
-              const exchange = Number(row.환율) || (catRow ? catRow.환율 : globalSettings.exchange);
-              const logistics = Number(row.물류비) || (catRow ? catRow.물류비 : globalSettings.logistics);
-              const marginRatio = catRow?.마진율 !== undefined ? catRow.마진율 : globalSettings.margin;
-              const sRatio = catRow?.S등급비율 !== undefined ? catRow.S등급비율 : globalSettings.sRatio;
-              const aRatio = catRow?.A등급비율 !== undefined ? catRow.A등급비율 : globalSettings.aRatio;
-              const bRatio = catRow?.B등급비율 !== undefined ? catRow.B등급비율 : globalSettings.bRatio;
-              const cRatio = catRow?.C등급비율 !== undefined ? catRow.C등급비율 : globalSettings.cRatio;
-              const wRatio = catRow?.W등급비율 !== undefined ? catRow.W등급비율 : globalSettings.wRatio;
-
-              row.환율 = exchange;
-              row.물류비 = logistics;
-
-              const unitPrice = Number(row.단가) || 0;
-              const computedCost = Math.round(unitPrice * exchange + logistics);
-              row.원가 = computedCost;
-
-              const computedWholesale = Math.round((computedCost * marginRatio) / 1000) * 1000;
-              row.도매가 = computedWholesale;
-
-              const excluded = newVal ? newVal.split(',').map(s => s.trim().toUpperCase()) : [];
-              row.S등급가 = excluded.includes('S') ? computedWholesale : Math.round((computedWholesale * sRatio) / 100) * 100;
-              row.A등급 = excluded.includes('A') ? computedWholesale : Math.round((computedWholesale * aRatio) / 100) * 100;
-              row.B등급 = excluded.includes('B') ? computedWholesale : Math.round((computedWholesale * bRatio) / 100) * 100;
-              row.C등급 = excluded.includes('C') ? computedWholesale : Math.round((computedWholesale * cRatio) / 100) * 100;
-              row.W등급가 = excluded.includes('W') ? computedWholesale : Math.round((computedWholesale * wRatio) / 100) * 100;
+              applyPriceCalculation(row);
 
               updated[globalIdx] = row;
               setProducts(updated);
+              markProductDirty(row);
             }}
           />
         );
@@ -709,7 +684,7 @@ export default function AdminPage() {
       case '원가':
         return (
           <span className="text-neutral-500 select-none block text-center">
-            {(product.원가 || 0).toLocaleString('ko-KR')}
+            {hasProductUnitPrice(product) && product.원가 ? product.원가.toLocaleString('ko-KR') : ''}
           </span>
         );
       case '도매가':
@@ -717,8 +692,8 @@ export default function AdminPage() {
           <div className="flex items-center justify-center space-x-1">
             <input
               type="text"
-              value={product.도매가 ? product.도매가.toLocaleString('ko-KR') : ''}
-              placeholder="0"
+              value={hasProductUnitPrice(product) && product.도매가 ? product.도매가.toLocaleString('ko-KR') : ''}
+              placeholder=""
               onChange={(e) => {
                 const raw = e.target.value.replace(/[^0-9]/g, '');
                 const val = parseInt(raw, 10) || 0;
@@ -739,8 +714,8 @@ export default function AdminPage() {
         return (
           <input
             type="text"
-            value={product.S등급가 ? product.S등급가.toLocaleString('ko-KR') : ''}
-            placeholder="0"
+            value={hasProductUnitPrice(product) && product.S등급가 ? product.S등급가.toLocaleString('ko-KR') : ''}
+            placeholder=""
             onChange={(e) => {
               const raw = e.target.value.replace(/[^0-9]/g, '');
               const val = parseInt(raw, 10) || 0;
@@ -753,8 +728,8 @@ export default function AdminPage() {
         return (
           <input
             type="text"
-            value={product.A등급 ? product.A등급.toLocaleString('ko-KR') : ''}
-            placeholder="0"
+            value={hasProductUnitPrice(product) && product.A등급 ? product.A등급.toLocaleString('ko-KR') : ''}
+            placeholder=""
             onChange={(e) => {
               const raw = e.target.value.replace(/[^0-9]/g, '');
               const val = parseInt(raw, 10) || 0;
@@ -767,8 +742,8 @@ export default function AdminPage() {
         return (
           <input
             type="text"
-            value={product.B등급 ? product.B등급.toLocaleString('ko-KR') : ''}
-            placeholder="0"
+            value={hasProductUnitPrice(product) && product.B등급 ? product.B등급.toLocaleString('ko-KR') : ''}
+            placeholder=""
             onChange={(e) => {
               const raw = e.target.value.replace(/[^0-9]/g, '');
               const val = parseInt(raw, 10) || 0;
@@ -781,8 +756,8 @@ export default function AdminPage() {
         return (
           <input
             type="text"
-            value={product.C등급 ? product.C등급.toLocaleString('ko-KR') : ''}
-            placeholder="0"
+            value={hasProductUnitPrice(product) && product.C등급 ? product.C등급.toLocaleString('ko-KR') : ''}
+            placeholder=""
             onChange={(e) => {
               const raw = e.target.value.replace(/[^0-9]/g, '');
               const val = parseInt(raw, 10) || 0;
@@ -795,8 +770,8 @@ export default function AdminPage() {
         return (
           <input
             type="text"
-            value={product.W등급가 ? product.W등급가.toLocaleString('ko-KR') : ''}
-            placeholder="0"
+            value={hasProductUnitPrice(product) && product.W등급가 ? product.W등급가.toLocaleString('ko-KR') : ''}
+            placeholder=""
             onChange={(e) => {
               const raw = e.target.value.replace(/[^0-9]/g, '');
               const val = parseInt(raw, 10) || 0;
@@ -1169,6 +1144,70 @@ export default function AdminPage() {
   };
 
   const getProductKey = (product: Product) => String(product.임시코드 || product.상품명 || '').trim();
+
+  const hasProductUnitPrice = (product: Product) => Number(product.단가 || 0) > 0;
+
+  const clearCalculatedPrices = (row: Product) => {
+    row.원가 = 0;
+    row.도매가 = 0;
+    row.S등급가 = 0;
+    row.A등급 = 0;
+    row.B등급 = 0;
+    row.C등급 = 0;
+    row.W등급가 = 0;
+  };
+
+  const applyPriceCalculation = (row: Product, options?: { useGlobalSettings?: boolean }) => {
+    const catRow = categories.find(c => c.카테고리 === row.카테고리);
+    const exchange = options?.useGlobalSettings
+      ? Number(globalSettings.exchange) || 0
+      : Number(row.환율) || (catRow ? catRow.환율 : globalSettings.exchange);
+    const logistics = options?.useGlobalSettings
+      ? Number(globalSettings.logistics) || 0
+      : Number(row.물류비) || (catRow ? catRow.물류비 : globalSettings.logistics);
+
+    row.환율 = exchange;
+    row.물류비 = logistics;
+
+    const unitPrice = Number(row.단가 || 0);
+    if (unitPrice <= 0) {
+      clearCalculatedPrices(row);
+      return row;
+    }
+
+    const marginRatio = options?.useGlobalSettings
+      ? Number(globalSettings.margin) || 1.25
+      : (catRow?.마진율 !== undefined ? catRow.마진율 : globalSettings.margin);
+    const sRatio = options?.useGlobalSettings
+      ? Number(globalSettings.sRatio) || 0.80
+      : (catRow?.S등급비율 !== undefined ? catRow.S등급비율 : globalSettings.sRatio);
+    const aRatio = options?.useGlobalSettings
+      ? Number(globalSettings.aRatio) || 0.85
+      : (catRow?.A등급비율 !== undefined ? catRow.A등급비율 : globalSettings.aRatio);
+    const bRatio = options?.useGlobalSettings
+      ? Number(globalSettings.bRatio) || 0.90
+      : (catRow?.B등급비율 !== undefined ? catRow.B등급비율 : globalSettings.bRatio);
+    const cRatio = options?.useGlobalSettings
+      ? Number(globalSettings.cRatio) || 0.95
+      : (catRow?.C등급비율 !== undefined ? catRow.C등급비율 : globalSettings.cRatio);
+    const wRatio = options?.useGlobalSettings
+      ? Number(globalSettings.wRatio) || 0.89
+      : (catRow?.W등급비율 !== undefined ? catRow.W등급비율 : globalSettings.wRatio);
+
+    const computedCost = Math.round(unitPrice * exchange + logistics);
+    const computedWholesale = Math.round((computedCost * marginRatio) / 1000) * 1000;
+    const excluded = (row.등급할인제외 || '').split(',').map(s => s.trim().toUpperCase());
+
+    row.원가 = computedCost;
+    row.도매가 = computedWholesale;
+    row.S등급가 = excluded.includes('S') ? computedWholesale : Math.round((computedWholesale * sRatio) / 100) * 100;
+    row.A등급 = excluded.includes('A') ? computedWholesale : Math.round((computedWholesale * aRatio) / 100) * 100;
+    row.B등급 = excluded.includes('B') ? computedWholesale : Math.round((computedWholesale * bRatio) / 100) * 100;
+    row.C등급 = excluded.includes('C') ? computedWholesale : Math.round((computedWholesale * cRatio) / 100) * 100;
+    row.W등급가 = excluded.includes('W') ? computedWholesale : Math.round((computedWholesale * wRatio) / 100) * 100;
+
+    return row;
+  };
 
   const markProductDirty = (product: Product) => {
     const key = getProductKey(product);
@@ -1757,6 +1796,10 @@ export default function AdminPage() {
     const previousKey = getProductKey(previousRow);
     const row = { ...previousRow, [field]: value };
 
+    if (['단가', '환율', '물류비', '카테고리'].includes(String(field)) && !hasProductUnitPrice(row)) {
+      clearCalculatedPrices(row);
+    }
+
     // 노출여부가 y/Y로 변경되거나, 노출제외 필드에 특정 값이 지정될 때 노출날짜(업로드일자)가 비어있다면 오늘 날짜 자동 기입
     if (
       (field === '노출여부' && String(value).toLowerCase().trim() === 'y') ||
@@ -1783,34 +1826,7 @@ export default function AdminPage() {
   const triggerRecalculate = (index: number) => {
     const updated = [...products];
     const row = { ...updated[index] };
-
-    const catRow = categories.find(c => c.카테고리 === row.카테고리);
-    
-    const exchange = Number(row.환율) || (catRow ? catRow.환율 : globalSettings.exchange);
-    const logistics = Number(row.물류비) || (catRow ? catRow.물류비 : globalSettings.logistics);
-    const marginRatio = catRow?.마진율 !== undefined ? catRow.마진율 : globalSettings.margin;
-    const sRatio = catRow?.S등급비율 !== undefined ? catRow.S등급비율 : globalSettings.sRatio;
-    const aRatio = catRow?.A등급비율 !== undefined ? catRow.A등급비율 : globalSettings.aRatio;
-    const bRatio = catRow?.B등급비율 !== undefined ? catRow.B등급비율 : globalSettings.bRatio;
-    const cRatio = catRow?.C등급비율 !== undefined ? catRow.C등급비율 : globalSettings.cRatio;
-    const wRatio = catRow?.W등급비율 !== undefined ? catRow.W등급비율 : globalSettings.wRatio;
-
-    row.환율 = exchange;
-    row.물류비 = logistics;
-
-    const unitPrice = Number(row.단가) || 0;
-    const computedCost = Math.round(unitPrice * exchange + logistics);
-    row.원가 = computedCost;
-
-    const computedWholesale = Math.round((computedCost * marginRatio) / 1000) * 1000;
-    row.도매가 = computedWholesale;
-
-    const excluded = (row.등급할인제외 || '').split(',').map(s => s.trim().toUpperCase());
-    row.S등급가 = excluded.includes('S') ? computedWholesale : Math.round((computedWholesale * sRatio) / 100) * 100;
-    row.A등급 = excluded.includes('A') ? computedWholesale : Math.round((computedWholesale * aRatio) / 100) * 100;
-    row.B등급 = excluded.includes('B') ? computedWholesale : Math.round((computedWholesale * bRatio) / 100) * 100;
-    row.C등급 = excluded.includes('C') ? computedWholesale : Math.round((computedWholesale * cRatio) / 100) * 100;
-    row.W등급가 = excluded.includes('W') ? computedWholesale : Math.round((computedWholesale * wRatio) / 100) * 100;
+    applyPriceCalculation(row);
 
     updated[index] = row;
     setProducts(updated);
@@ -1939,33 +1955,7 @@ export default function AdminPage() {
         row.등급할인제외 = bulkFields.gradeExcludeValue;
       }
 
-      // 단가, 환율, 물류비, 카테고리가 변경되었으므로 가격 관련 필드 전체 재계산
-      const catRow = categories.find(c => c.카테고리 === row.카테고리);
-      const exchange = Number(row.환율) || (catRow ? catRow.환율 : globalSettings.exchange);
-      const logistics = Number(row.물류비) || (catRow ? catRow.물류비 : globalSettings.logistics);
-      const marginRatio = catRow?.마진율 !== undefined ? catRow.마진율 : globalSettings.margin;
-      const sRatio = catRow?.S등급비율 !== undefined ? catRow.S등급비율 : globalSettings.sRatio;
-      const aRatio = catRow?.A등급비율 !== undefined ? catRow.A등급비율 : globalSettings.aRatio;
-      const bRatio = catRow?.B등급비율 !== undefined ? catRow.B등급비율 : globalSettings.bRatio;
-      const cRatio = catRow?.C등급비율 !== undefined ? catRow.C등급비율 : globalSettings.cRatio;
-      const wRatio = catRow?.W등급비율 !== undefined ? catRow.W등급비율 : globalSettings.wRatio;
-
-      row.환율 = exchange;
-      row.물류비 = logistics;
-
-      const unitPrice = Number(row.단가) || 0;
-      const computedCost = Math.round(unitPrice * exchange + logistics);
-      row.원가 = computedCost;
-
-      const computedWholesale = Math.round((computedCost * marginRatio) / 1000) * 1000;
-      row.도매가 = computedWholesale;
-
-      const excluded = (row.등급할인제외 || '').split(',').map(s => s.trim().toUpperCase());
-      row.S등급가 = excluded.includes('S') ? computedWholesale : Math.round((computedWholesale * sRatio) / 100) * 100;
-      row.A등급 = excluded.includes('A') ? computedWholesale : Math.round((computedWholesale * aRatio) / 100) * 100;
-      row.B등급 = excluded.includes('B') ? computedWholesale : Math.round((computedWholesale * bRatio) / 100) * 100;
-      row.C등급 = excluded.includes('C') ? computedWholesale : Math.round((computedWholesale * cRatio) / 100) * 100;
-      row.W등급가 = excluded.includes('W') ? computedWholesale : Math.round((computedWholesale * wRatio) / 100) * 100;
+      applyPriceCalculation(row);
 
       return row;
     });
@@ -2038,32 +2028,9 @@ export default function AdminPage() {
 
       if (!isTarget) return p;
 
-      const exchange = Number(globalSettings.exchange) || 0;
-      const logistics = Number(globalSettings.logistics) || 0;
-      const marginRatio = Number(globalSettings.margin) || 1.25;
-      const sRatio = Number(globalSettings.sRatio) || 0.80;
-      const aRatio = Number(globalSettings.aRatio) || 0.85;
-      const bRatio = Number(globalSettings.bRatio) || 0.90;
-      const cRatio = Number(globalSettings.cRatio) || 0.95;
-      const wRatio = Number(globalSettings.wRatio) || 0.89;
-
-      const unitPrice = Number(p.단가) || 0;
-      const computedCost = Math.round(unitPrice * exchange + logistics);
-      const computedWholesale = Math.round((computedCost * marginRatio) / 1000) * 1000;
-
-      const excluded = (p.등급할인제외 || '').split(',').map(s => s.trim().toUpperCase());
-      return {
-        ...p,
-        환율: exchange,
-        물류비: logistics,
-        원가: computedCost,
-        도매가: computedWholesale,
-        S등급가: excluded.includes('S') ? computedWholesale : Math.round((computedWholesale * sRatio) / 100) * 100,
-        A등급: excluded.includes('A') ? computedWholesale : Math.round((computedWholesale * aRatio) / 100) * 100,
-        B등급: excluded.includes('B') ? computedWholesale : Math.round((computedWholesale * bRatio) / 100) * 100,
-        C등급: excluded.includes('C') ? computedWholesale : Math.round((computedWholesale * cRatio) / 100) * 100,
-        W등급가: excluded.includes('W') ? computedWholesale : Math.round((computedWholesale * wRatio) / 100) * 100,
-      };
+      const row = { ...p };
+      applyPriceCalculation(row, { useGlobalSettings: true });
+      return row;
     });
 
     setProducts(updated);
