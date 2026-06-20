@@ -26,6 +26,27 @@ function getCustomerGradeLabel(grade: string): string {
   return grade === '일반등급' ? '일반등급' : `${grade} 등급`;
 }
 
+function getReadableResponseError(rawText: string, status: number, fallback: string): string {
+  const trimmed = rawText.trim();
+  if (!trimmed) return `${fallback} (${status})`;
+  if (/internal server error/i.test(trimmed)) {
+    return `${fallback}: 서버 내부 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.`;
+  }
+  if (trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html')) {
+    return `${fallback}: 서버가 오류 화면을 반환했습니다. 새로고침 후 다시 시도해 주세요.`;
+  }
+  return `${fallback}: ${trimmed}`;
+}
+
+async function readJsonResponse(res: Response, fallback: string): Promise<any> {
+  const rawText = await res.text();
+  try {
+    return rawText ? JSON.parse(rawText) : null;
+  } catch {
+    throw new Error(getReadableResponseError(rawText, res.status, fallback));
+  }
+}
+
 function normalizeCustomerForView(customer: Customer): Customer {
   return {
     ...customer,
@@ -144,7 +165,7 @@ export default function AdminCustomersPage() {
     setLoading(true);
     try {
       const res = await fetch(`/api/admin/customers?startDate=${start}&endDate=${end}`);
-      const data = await res.json();
+      const data = await readJsonResponse(res, '거래처 데이터 불러오기 실패');
       if (data.success) {
         const loadedCustomers = Array.isArray(data.customers)
           ? data.customers.map((customer: Customer) => normalizeCustomerForView(customer))
@@ -215,7 +236,7 @@ export default function AdminCustomersPage() {
           replaceAllCustomers: false,
         })
       });
-      const data = await res.json();
+      const data = await readJsonResponse(res, '거래처 저장 실패');
       if (data.success) {
         const savedCount = Number(data.savedCustomerCount ?? changedCustomers.length);
         const deletedCount = Number(data.deletedCustomerCount ?? deletedNames.length);
@@ -226,7 +247,7 @@ export default function AdminCustomersPage() {
       }
     } catch (err) {
       console.error(err);
-      alert('서버 저장 실패');
+      alert((err as Error)?.message || '서버 저장 실패');
     } finally {
       setSaving(false);
     }

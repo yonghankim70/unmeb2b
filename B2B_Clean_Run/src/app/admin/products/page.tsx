@@ -1431,7 +1431,7 @@ export default function AdminPage() {
     setLoading(true);
     try {
       const res = await fetch('/api/admin/products');
-      const data = await res.json();
+      const data = await readJsonResponse(res, '상품 데이터 불러오기 실패');
       if (!res.ok || !data.success) {
         const message = data?.message || '상품 데이터를 불러오지 못했습니다.';
         if (res.status === 401) {
@@ -1698,7 +1698,7 @@ export default function AdminPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: 'apply' })
       });
-      const data = await res.json();
+      const data = await readJsonResponse(res, '신규 상품 동기화 실패');
       if (data.success) {
         const syncedTime = typeof data.syncTime === 'string' ? data.syncTime : '';
         alert(`신규 상품 동기화 완료
@@ -1772,7 +1772,7 @@ export default function AdminPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await readJsonResponse(res, '상품 저장 실패');
       if (data.success) {
         const savedCount = Number(data.savedProductCount || 0);
         const deletedCount = Number(data.deletedProductCount || 0);
@@ -1795,7 +1795,7 @@ export default function AdminPage() {
       }
     } catch (e) {
       console.error(e);
-      alert('데이터베이스 저장 도중 오류가 발생했습니다.');
+      alert((e as Error)?.message || '데이터베이스 저장 도중 오류가 발생했습니다.');
     } finally {
       setSaving(false);
     }
@@ -1818,7 +1818,7 @@ export default function AdminPage() {
           }
         })
       });
-      const data = await res.json();
+      const data = await readJsonResponse(res, '글로벌 설정 저장 실패');
       if (data.success) {
         alert('글로벌 설정이 성공적으로 저장되었습니다.');
         loadData();
@@ -1827,7 +1827,7 @@ export default function AdminPage() {
       }
     } catch (e) {
       console.error(e);
-      alert('글로벌 설정 저장 도중 오류가 발생했습니다.');
+      alert((e as Error)?.message || '글로벌 설정 저장 도중 오류가 발생했습니다.');
     } finally {
       setSaving(false);
     }

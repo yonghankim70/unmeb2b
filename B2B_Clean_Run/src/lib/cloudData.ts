@@ -87,6 +87,8 @@ const ORDER_INSERT_COLUMNS = ['id', 'customer_name', 'product_code', 'color', 'q
 const PAYMENT_INSERT_COLUMNS = ['id', 'customer_name', 'payment_at', 'amount', 'payload', 'updated_at'] as const;
 const CART_INSERT_COLUMNS = ['customerName', 'productCode', 'color', 'quantity', 'category', 'updatedAt'] as const;
 const MAX_D1_SQL_VARIABLES_PER_STATEMENT = 90;
+const MAX_D1_SQL_VARIABLES_PER_BATCH = 360;
+const MAX_D1_STATEMENTS_PER_BATCH = 8;
 
 function chunkArray<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
@@ -113,8 +115,41 @@ function uniqueNonEmpty(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => String(value || '').trim()).filter(Boolean)));
 }
 
-async function runWriteBatch(queries: D1WriteQuery[], chunkSize = 20): Promise<void> {
-  for (const chunk of chunkArray(queries, chunkSize)) {
+function countQueryParams(query: D1WriteQuery): number {
+  return Array.isArray(query.params) ? query.params.length : 0;
+}
+
+function chunkD1WriteQueries(queries: D1WriteQuery[]): D1WriteQuery[][] {
+  const chunks: D1WriteQuery[][] = [];
+  let current: D1WriteQuery[] = [];
+  let currentParamCount = 0;
+
+  const flush = () => {
+    if (current.length === 0) return;
+    chunks.push(current);
+    current = [];
+    currentParamCount = 0;
+  };
+
+  for (const query of queries) {
+    const paramCount = countQueryParams(query);
+    const wouldExceedParams = current.length > 0 && currentParamCount + paramCount > MAX_D1_SQL_VARIABLES_PER_BATCH;
+    const wouldExceedStatements = current.length >= MAX_D1_STATEMENTS_PER_BATCH;
+
+    if (wouldExceedParams || wouldExceedStatements) {
+      flush();
+    }
+
+    current.push(query);
+    currentParamCount += paramCount;
+  }
+
+  flush();
+  return chunks;
+}
+
+async function runWriteBatch(queries: D1WriteQuery[]): Promise<void> {
+  for (const chunk of chunkD1WriteQueries(queries)) {
     await batchD1(chunk);
   }
 }
