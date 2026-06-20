@@ -11,6 +11,9 @@ const MAIN_IMAGE_WIDTHS = [480, 720] as const;
 const DETAIL_IMAGE_WIDTHS = [1200, 1600] as const;
 const DEFAULT_MAIN_IMAGE_WIDTH = 720;
 const DEFAULT_DETAIL_IMAGE_WIDTH = 1600;
+const HQ_TEST_PRODUCT_CODE = 'BC0603-02';
+const HQ_TEST_MAIN_WIDTH = 960;
+const HQ_TEST_DETAIL_WIDTH = 2200;
 const R2_IMAGE_BASE_URL = (process.env.NEXT_PUBLIC_R2_IMAGE_BASE_URL || '').replace(/\/+$/, '');
 
 export function getImageCode(product: ImageProductLike): string {
@@ -24,6 +27,28 @@ function getCacheSegment(value: string): string {
 function withImageBase(pathname: string): string {
   if (!R2_IMAGE_BASE_URL) return pathname;
   return `${R2_IMAGE_BASE_URL}${pathname}`;
+}
+
+function isHighQualityTestProduct(product: ImageProductLike): boolean {
+  const code = getImageCode(product).trim().toUpperCase();
+  const name = product.상품명.trim().toUpperCase();
+  return code === HQ_TEST_PRODUCT_CODE || name === HQ_TEST_PRODUCT_CODE;
+}
+
+function getMainImageWidths(product: ImageProductLike): readonly number[] {
+  return isHighQualityTestProduct(product) ? [HQ_TEST_MAIN_WIDTH] : MAIN_IMAGE_WIDTHS;
+}
+
+function getDetailImageWidths(product: ImageProductLike): readonly number[] {
+  return isHighQualityTestProduct(product) ? [HQ_TEST_DETAIL_WIDTH] : DETAIL_IMAGE_WIDTHS;
+}
+
+function getDefaultMainImageWidth(product: ImageProductLike): number {
+  return isHighQualityTestProduct(product) ? HQ_TEST_MAIN_WIDTH : DEFAULT_MAIN_IMAGE_WIDTH;
+}
+
+function getDefaultDetailImageWidth(product: ImageProductLike): number {
+  return isHighQualityTestProduct(product) ? HQ_TEST_DETAIL_WIDTH : DEFAULT_DETAIL_IMAGE_WIDTH;
 }
 
 function encodePathSegments(pathname: string): string {
@@ -49,12 +74,12 @@ export function getLegacyDetailImageUrl(product: ImageProductLike, fileName: str
   return `/image-cache/detail/${encodeURIComponent(product.주차)}/${getCacheSegment(getImageCode(product))}/${encodeURIComponent(fileName)}`;
 }
 
-export function getOptimizedMainImageUrl(product: ImageProductLike, width = DEFAULT_MAIN_IMAGE_WIDTH): string {
+export function getOptimizedMainImageUrl(product: ImageProductLike, width = getDefaultMainImageWidth(product)): string {
   return withImageBase(`/image-cache/main/${encodeURIComponent(product.주차)}/${getCacheSegment(getImageCode(product))}-${width}.webp`);
 }
 
 export function getOptimizedMainImageSrcSet(product: ImageProductLike): string {
-  return MAIN_IMAGE_WIDTHS
+  return getMainImageWidths(product)
     .map((width) => `${getOptimizedMainImageUrl(product, width)} ${width}w`)
     .join(', ');
 }
@@ -62,7 +87,7 @@ export function getOptimizedMainImageSrcSet(product: ImageProductLike): string {
 export function getOptimizedDetailImageUrl(
   product: ImageProductLike,
   fileName: string,
-  width = DEFAULT_DETAIL_IMAGE_WIDTH
+  width = getDefaultDetailImageWidth(product)
 ): string {
   return withImageBase(`/image-cache/detail/${encodeURIComponent(product.주차)}/${getCacheSegment(getImageCode(product))}/${getCacheSegment(fileName)}-${width}.webp`);
 }
@@ -70,14 +95,14 @@ export function getOptimizedDetailImageUrl(
 export function getEncodedOptimizedDetailImageUrl(
   product: ImageProductLike,
   fileName: string,
-  width = DEFAULT_DETAIL_IMAGE_WIDTH
+  width = getDefaultDetailImageWidth(product)
 ): string {
   const pathname = `/image-cache/detail/${encodeURIComponent(product.주차)}/${getCacheSegment(getImageCode(product))}/${getCacheSegment(fileName)}-${width}.webp`;
   return withImageBase(encodePathSegments(pathname));
 }
 
 export function getOptimizedDetailImageSrcSet(product: ImageProductLike, fileName: string): string {
-  return DETAIL_IMAGE_WIDTHS
+  return getDetailImageWidths(product)
     .map((width) => `${getOptimizedDetailImageUrl(product, fileName, width)} ${width}w`)
     .join(', ');
 }
@@ -121,7 +146,7 @@ export function preloadMainProductImages(products: ImageProductLike[], limit = 8
     const batchEnd = Math.min(cursor + 24, targets.length);
     for (; cursor < batchEnd; cursor += 1) {
       const product = targets[cursor];
-      const cachedUrl = getOptimizedMainImageUrl(product, DEFAULT_MAIN_IMAGE_WIDTH);
+      const cachedUrl = getOptimizedMainImageUrl(product);
       if (preloadedMainImages.has(cachedUrl)) continue;
 
       preloadedMainImages.add(cachedUrl);
