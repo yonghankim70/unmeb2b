@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readAllOrders, writeAllOrders, readExcelData } from '@/lib/db';
+import { readAllOrders, writeAllOrders, readExcelData, readCustomersDb, readProductsDb } from '@/lib/db';
 import { sendTelegramAlert } from '@/lib/telegram';
 import { isAdminAuthenticated } from '@/lib/adminAuth';
 import { isCloudDbEnabled } from '@/lib/cloudflareD1';
-import { deleteCloudOrdersByKeys, readCloudMasterData, readCloudOrders, writeCloudOrders } from '@/lib/cloudData';
+import { deleteCloudOrdersByKeys, readCloudCustomers, readCloudMasterData, readCloudOrders, readCloudProducts, writeCloudOrders } from '@/lib/cloudData';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,10 +58,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, message: '관리자 로그인이 필요합니다.' }, { status: 401 });
     }
 
-    const orders = isCloudDbEnabled() ? await readCloudOrders() : readAllOrders();
+    const cloudMode = isCloudDbEnabled();
+    const [orders, customers, products] = cloudMode
+      ? await Promise.all([readCloudOrders(), readCloudCustomers(), readCloudProducts()])
+      : [readAllOrders(), readCustomersDb(), readProductsDb()];
     return NextResponse.json({
       success: true,
-      orders
+      orders,
+      customers,
+      products,
     });
   } catch (error: any) {
     console.error('[Admin Orders API GET] Error:', error);

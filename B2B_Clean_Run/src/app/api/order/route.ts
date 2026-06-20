@@ -71,6 +71,14 @@ function generateOrderNo(): string {
   return `O${yy}${mm}${dd}${random}`;
 }
 
+function resolveDefaultPaymentStatus(value: unknown): string {
+  const text = String(value || '').trim().replace(/\s+/g, '').toLowerCase();
+  if (text.includes('주결제')) return '주결제';
+  if (text.includes('15')) return '15일결제';
+  if (text.includes('월결제') || text.includes('1달') || text.includes('한달')) return '월결제';
+  return '미입금';
+}
+
 function buildOrderRows(
   customerName: string,
   orderItems: SubmittedOrderItem[],
@@ -88,6 +96,7 @@ function buildOrderRows(
     (item) => String(item.거래처명 || '').trim().toLowerCase() === customerName.trim().toLowerCase(),
   );
   const grade = String(customer?.거래처등급 || 'C').trim().toUpperCase();
+  const defaultPaymentStatus = resolveDefaultPaymentStatus(customer?.결제방식);
 
   return orderItems.map((item) => {
     const product = productMap.get(item.productCode.trim().toLowerCase());
@@ -117,7 +126,7 @@ function buildOrderRows(
       발송날짜: '',
       전표번호: '',
       주문확인: 'n',
-      입금확인: '미입금',
+      입금확인: defaultPaymentStatus,
       입금방식: '',
       입금금액: 0,
       입금자: '',

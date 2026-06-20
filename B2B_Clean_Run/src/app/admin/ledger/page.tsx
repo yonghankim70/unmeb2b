@@ -202,7 +202,7 @@ export default function AdminLedgerPage() {
   const getCustomerCondition = (custName: string): string => {
     const customerOrders = orders.filter(o => o.거래처명.trim() === custName.trim());
     const conditions = Array.from(new Set(customerOrders.map(o => o.입금확인).filter(Boolean)));
-    const creditConditions = conditions.filter(c => ['주결제', '15일결제', '1달 결제'].includes(c!));
+    const creditConditions = conditions.filter(c => ['주결제', '15일결제', '15결제', '월결제', '1달 결제'].includes(c!));
     if (creditConditions.length > 0 && creditConditions[0]) return creditConditions[0];
     return '당일결제';
   };
@@ -1081,7 +1081,7 @@ export default function AdminLedgerPage() {
                           )}
                           <td className="py-3 px-4 border-r border-neutral-200 text-center">
                             <span className={`px-2.5 py-0.5 text-[10px] font-bold rounded-full ${
-                              ['주결제', '15일결제', '1달 결제'].includes(item.결제조건)
+                              ['주결제', '15일결제', '15결제', '월결제', '1달 결제'].includes(item.결제조건)
                                 ? 'bg-blue-50 text-blue-800 border border-blue-200'
                                 : 'bg-neutral-100 text-neutral-600 border border-neutral-200'
                             }`}>

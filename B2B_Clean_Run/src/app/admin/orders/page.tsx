@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { CustomerOrder } from '@/lib/db';
+import { Customer, CustomerOrder, Product } from '@/lib/db';
 import { clearAdminAuthCache, hasFreshAdminAuthCache, markAdminAuthenticated, prefetchAdminRoutes, verifyAdminStatus } from '@/lib/adminClient';
 import * as xlsx from 'xlsx';
 import { 
@@ -26,6 +26,139 @@ function orderOptionLabel(order: CustomerOrder): string {
   return size ? `${color}/${size}` : color;
 }
 
+const PAYMENT_STATUS_OPTIONS = [
+  { value: '미입금', label: '미입금' },
+  { value: '입금완료', label: '입금완료' },
+  { value: '주결제', label: '주결제' },
+  { value: '15일결제', label: '15결제' },
+  { value: '월결제', label: '월결제' },
+];
+
+function normalizeKey(value: unknown): string {
+  return String(value || '').trim().toLowerCase();
+}
+
+function parseDatePart(value: string) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+
+  const iso = text.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
+
+  const dotted = text.match(/(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})/);
+  if (dotted) return `${dotted[1]}-${dotted[2].padStart(2, '0')}-${dotted[3].padStart(2, '0')}`;
+
+  const slash = text.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+  if (slash) return `${slash[1]}-${slash[2].padStart(2, '0')}-${slash[3].padStart(2, '0')}`;
+
+  return '';
+}
+
+function makeProductMap(products: Product[]) {
+  const map = new Map<string, Product>();
+  products.forEach(product => {
+    if (product.임시코드) map.set(normalizeKey(product.임시코드), product);
+    if (product.상품명) map.set(normalizeKey(product.상품명), product);
+    if (product.중국코드) map.set(normalizeKey(product.중국코드), product);
+  });
+  return map;
+}
+
+function matchesTextFilter(value: unknown, filter: string) {
+  const normalizedFilter = normalizeKey(filter);
+  if (!normalizedFilter) return true;
+  return normalizeKey(value).includes(normalizedFilter);
+}
+
+function normalizePaymentStatus(value: unknown): string {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  const compact = text.replace(/\s+/g, '').toLowerCase();
+
+  if (compact.includes('입금완료')) return '입금완료';
+  if (compact.includes('주결제')) return '주결제';
+  if (compact.includes('15')) return '15일결제';
+  if (compact.includes('월결제') || compact.includes('1달') || compact.includes('한달')) return '월결제';
+  if (compact.includes('당일') || compact.includes('미입금')) return '미입금';
+  return text;
+}
+
+function isPaidOrCreditStatus(value: unknown): boolean {
+  return ['입금완료', '주결제', '15일결제', '월결제'].includes(normalizePaymentStatus(value));
+}
+
+function isCreditPaymentStatus(value: unknown): boolean {
+  return ['주결제', '15일결제', '월결제'].includes(normalizePaymentStatus(value));
+}
+
+function getCustomerDefaultPaymentStatus(customer?: Customer): string {
+  const paymentStatus = normalizePaymentStatus(customer?.결제방식);
+  return isCreditPaymentStatus(paymentStatus) ? paymentStatus : '미입금';
+}
+
+function getDisplayPaymentStatus(value: unknown): string {
+  return normalizePaymentStatus(value) || '미입금';
+}
+
+function applyCustomerPaymentDefaults(orderList: CustomerOrder[], customerList: Customer[]): CustomerOrder[] {
+  const customerByName = new Map(customerList.map(customer => [normalizeKey(customer.거래처명), customer]));
+  return orderList.map(order => {
+    const displayStatus = getDisplayPaymentStatus(order.입금확인);
+    const customerDefaultStatus = getCustomerDefaultPaymentStatus(customerByName.get(normalizeKey(order.거래처명)));
+    const nextStatus = displayStatus === '미입금' && customerDefaultStatus !== '미입금'
+      ? customerDefaultStatus
+      : displayStatus;
+
+    return order.입금확인 === nextStatus ? order : { ...order, 입금확인: nextStatus };
+  });
+}
+
+function SearchableFilterInput({
+  id,
+  label,
+  value,
+  onChange,
+  options,
+  placeholder,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+  placeholder: string;
+}) {
+  return (
+    <div>
+      <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest block mb-1.5">{label}</label>
+      <div className="relative">
+        <input
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          list={id}
+          placeholder={placeholder}
+          className="w-full border border-neutral-200 px-2 py-1.5 pr-7 text-xs font-mono bg-white focus:outline-none focus:border-black"
+        />
+        {value && (
+          <button
+            type="button"
+            onClick={() => onChange('')}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-300 hover:text-neutral-800 text-sm leading-none"
+            aria-label={`${label} 초기화`}
+          >
+            x
+          </button>
+        )}
+        <datalist id={id}>
+          {options.map(option => (
+            <option key={option} value={option} />
+          ))}
+        </datalist>
+      </div>
+    </div>
+  );
+}
+
 function uniqueKeys(keys: string[]): string[] {
   return Array.from(new Set(keys.map((key) => String(key || '').trim()).filter(Boolean)));
 }
@@ -43,11 +176,20 @@ export default function AdminOrdersPage() {
 
   // Data states
   const [orders, setOrders] = useState<CustomerOrder[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   // Search & Filter states
   const [searchTerm, setSearchTerm] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [customerFilter, setCustomerFilter] = useState('');
+  const [productFilter, setProductFilter] = useState('');
+  const [seasonFilter, setSeasonFilter] = useState('');
+  const [weekFrom, setWeekFrom] = useState('');
+  const [weekTo, setWeekTo] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [paymentFilter, setPaymentFilter] = useState('ALL');
   const [completionFilter, setCompletionFilter] = useState('n'); // n: 진행중, y: 종결, ALL: 전체
@@ -143,7 +285,10 @@ export default function AdminOrdersPage() {
       const res = await fetch('/api/admin/orders');
       const data = await res.json();
       if (data.success) {
-        setOrders(data.orders || []);
+        const nextCustomers = data.customers || [];
+        setCustomers(nextCustomers);
+        setProducts(data.products || []);
+        setOrders(applyCustomerPaymentDefaults(data.orders || [], nextCustomers));
         setSelectedKeys([]);
         setDeletedOrderKeys([]);
       }
@@ -155,12 +300,47 @@ export default function AdminOrdersPage() {
   };
 
   const handleExportOrders = () => {
-    const a = document.createElement('a');
-    a.href = '/api/admin/export-orders';
-    a.download = `Orders_Export_${new Date().toISOString().slice(0, 10)}.xlsx`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    const rows = filteredOrders.map((order, idx) => {
+      const product = productMap.get(normalizeKey(order.상품코드));
+      return {
+        번호: idx + 1,
+        주문번호: order.주문번호 || '',
+        종결여부: order.종결여부 === 'y' ? '종결' : '진행중',
+        주문일시: order.주문일시 || '',
+        거래처명: order.거래처명 || '',
+        상품코드: order.상품코드 || '',
+        상품명: product?.상품명 || order.상품코드 || '',
+        주차: product?.주차 || '',
+        시즌: product?.시즌 || '',
+        컬러: order.컬러 || '',
+        사이즈: order.사이즈 || '',
+        수량: Number(order.수량 || 0),
+        도매단가: Number(order.단가 || 0),
+        총주문금액: Number(order.금액 || 0),
+        요청사항: order.요청사항 || '',
+        주문확인: order.주문확인 === 'y' ? '확인' : '대기',
+        입금확인: getDisplayPaymentStatus(order.입금확인),
+        입금계좌방식: order.입금방식 || '',
+        실입금액: Number(order.입금금액 || 0),
+        입금자명: order.입금자 || '',
+        진행상황: order.출고상황 || '',
+        전표번호: order.전표번호 || '',
+        발송날짜: order.발송날짜 || '',
+        발송처리: order.발송처리 || '',
+        택배사: order.택배사 || '',
+        운송장번호: order.운송장번호 || '',
+      };
+    });
+
+    if (rows.length === 0) {
+      alert('다운로드할 주문 내역이 없습니다.');
+      return;
+    }
+
+    const workbook = xlsx.utils.book_new();
+    const worksheet = xlsx.utils.json_to_sheet(rows);
+    xlsx.utils.book_append_sheet(workbook, worksheet, '주문조회');
+    xlsx.writeFile(workbook, `Orders_View_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   useEffect(() => {
@@ -211,7 +391,9 @@ export default function AdminOrdersPage() {
       // If unconfirming, roll back status if it was order processing/confirmed
       출고상황: nextVal === 'n' && (item.출고상황 === '오더 진행' || item.출고상황 === '오더진행' || item.출고상황 === '주문확인') 
         ? '주문확인대기' 
-        : (nextVal === 'y' && (item.출고상황 === '출고 대기' || item.출고상황 === '주문확인대기' || !item.출고상황) ? '주문확인' : item.출고상황)
+        : (nextVal === 'y' && (item.출고상황 === '출고 대기' || item.출고상황 === '주문확인대기' || !item.출고상황)
+          ? (isPaidOrCreditStatus(item.입금확인) ? '오더 진행' : '주문확인')
+          : item.출고상황)
     };
     setOrders(updated);
   };
@@ -288,7 +470,7 @@ export default function AdminOrdersPage() {
         }
       } else {
         // 2) 다른 필드가 변동된 경우 즉각 자동 동기화 적용
-        if (field === '입금확인' && ['입금완료', '주결제', '15일결제', '1달 결제'].includes(value)) {
+        if (field === '입금확인' && isPaidOrCreditStatus(value)) {
           item.주문확인 = 'y';
         }
 
@@ -303,7 +485,7 @@ export default function AdminOrdersPage() {
           item.출고상황 = '발송완료';
         } else {
           const isConfirmed = item.주문확인 === 'y';
-          const isPaid = ['입금완료', '주결제', '15일결제', '1달 결제'].includes(item.입금확인 || '');
+          const isPaid = isPaidOrCreditStatus(item.입금확인);
           if (isConfirmed) {
             item.출고상황 = isPaid ? '오더 진행' : '주문확인';
           } else {
@@ -691,9 +873,9 @@ export default function AdminOrdersPage() {
       const vatAmount = Math.round(totalSupplyPrice * 0.1);
       const totalAmount = totalSupplyPrice + vatAmount;
 
-      // Credit calculations for 주결제, 15일결제, 1달 결제
+      // Credit calculations for 주결제, 15결제, 월결제
       const isCreditCustomer = items.some(item => 
-        ['주결제', '15일결제', '1달 결제'].includes(item.입금확인 || '')
+        isCreditPaymentStatus(item.입금확인)
       );
 
       let totalOutstanding = 0;
@@ -966,7 +1148,7 @@ export default function AdminOrdersPage() {
           }
         } else {
           // 진행상황은 명시 체크하지 않고 주문확인/입금확인/발송처리 등을 일괄 수정한 경우 -> 자동 동기화
-          if (bulkFields.applyPayStatus && ['입금완료', '주결제', '15일결제', '1달 결제'].includes(item.입금확인 || '')) {
+          if (bulkFields.applyPayStatus && isPaidOrCreditStatus(item.입금확인)) {
             item.주문확인 = 'y';
           }
           
@@ -978,7 +1160,7 @@ export default function AdminOrdersPage() {
             item.출고상황 = '발송완료';
           } else {
             const isConfirmed = item.주문확인 === 'y';
-            const isPaid = ['입금완료', '주결제', '15일결제', '1달 결제'].includes(item.입금확인 || '');
+            const isPaid = isPaidOrCreditStatus(item.입금확인);
             if (isConfirmed) {
               item.출고상황 = isPaid ? '오더 진행' : '주문확인';
             } else {
@@ -1212,17 +1394,92 @@ export default function AdminOrdersPage() {
     alert(`${mismatchDialog.customerName}님의 입금이 강제 완료 처리되어 '오더진행'으로 갱신되었습니다.`);
   };
 
+  const productMap = useMemo(() => makeProductMap(products), [products]);
+  const weekOptions = useMemo(
+    () => Array.from(new Set(products.map(p => p.주차).filter((value): value is string => Boolean(value)))).sort(),
+    [products]
+  );
+  const seasonOptions = useMemo(
+    () => Array.from(new Set(products.map(p => p.시즌).filter((value): value is string => Boolean(value)))).sort(),
+    [products]
+  );
+  const productOptions = useMemo(() => {
+    const values = new Set<string>();
+    products.forEach(product => {
+      if (product.임시코드) values.add(product.임시코드);
+      if (product.상품명) values.add(product.상품명);
+      if (product.중국코드) values.add(product.중국코드);
+    });
+    orders.forEach(order => order.상품코드 && values.add(order.상품코드));
+    return Array.from(values).sort();
+  }, [products, orders]);
+  const customerOptions = useMemo(() => {
+    const values = new Set<string>();
+    customers.forEach(customer => customer.거래처명 && values.add(customer.거래처명));
+    orders.forEach(order => order.거래처명 && values.add(order.거래처명));
+    return Array.from(values).sort();
+  }, [customers, orders]);
+
+  const filterSignature = [
+    searchTerm,
+    startDate,
+    endDate,
+    customerFilter,
+    productFilter,
+    seasonFilter,
+    weekFrom,
+    weekTo,
+    statusFilter,
+    paymentFilter,
+    completionFilter,
+  ].join('|');
+
+  useEffect(() => {
+    setSelectedKeys([]);
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [filterSignature]);
+
   // Filter orders
   const filteredOrders = orders.filter(o => {
+    const product = productMap.get(normalizeKey(o.상품코드));
+    const orderDate = parseDatePart(o.주문일시);
+    const resolvedWeekFrom = weekFrom
+      ? weekOptions.find(week => normalizeKey(week).startsWith(normalizeKey(weekFrom))) || weekFrom
+      : '';
+    const resolvedWeekTo = weekTo
+      ? weekOptions.find(week => normalizeKey(week).startsWith(normalizeKey(weekTo))) || weekTo
+      : '';
+
+    if (startDate && (!orderDate || orderDate < startDate)) return false;
+    if (endDate && (!orderDate || orderDate > endDate)) return false;
+    if (customerFilter && !matchesTextFilter(o.거래처명, customerFilter)) return false;
+    if (productFilter && ![
+      o.상품코드,
+      product?.상품명,
+      product?.임시코드,
+      product?.중국코드,
+      product?.아이템,
+    ].some(value => matchesTextFilter(value, productFilter))) return false;
+    if (seasonFilter && !matchesTextFilter(product?.시즌, seasonFilter)) return false;
+    if (resolvedWeekFrom && String(product?.주차 || '') < resolvedWeekFrom) return false;
+    if (resolvedWeekTo && String(product?.주차 || '') > resolvedWeekTo) return false;
+
     // Search filter
-    const matchesSearch = 
-      (o.주문번호 || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (o.거래처명 || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (o.상품코드 || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (o.사이즈 || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (o.입금자 || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (o.운송장번호 || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (o.요청사항 || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const query = searchTerm.trim().toLowerCase();
+    const matchesSearch = !query || [
+      o.주문번호,
+      o.거래처명,
+      o.상품코드,
+      o.컬러,
+      o.사이즈,
+      o.입금자,
+      o.운송장번호,
+      o.요청사항,
+      product?.상품명,
+      product?.주차,
+      product?.시즌,
+      product?.아이템,
+    ].join(' ').toLowerCase().includes(query);
 
     if (!matchesSearch) return false;
 
@@ -1237,11 +1494,7 @@ export default function AdminOrdersPage() {
 
     // Payment filter
     if (paymentFilter !== 'ALL') {
-      if (paymentFilter === '미입금' && o.입금확인 !== '미입금') return false;
-      if (paymentFilter === '입금완료' && o.입금확인 !== '입금완료') return false;
-      if (paymentFilter === '주결제' && o.입금확인 !== '주결제') return false;
-      if (paymentFilter === '15일결제' && o.입금확인 !== '15일결제') return false;
-      if (paymentFilter === '1달 결제' && o.입금확인 !== '1달 결제') return false;
+      if (getDisplayPaymentStatus(o.입금확인) !== paymentFilter) return false;
     }
 
     // Completion filter
@@ -1323,7 +1576,7 @@ export default function AdminOrdersPage() {
             className="flex items-center space-x-1.5 hover:text-black transition-colors border border-neutral-200 px-3.5 py-1.5 bg-white font-medium"
           >
             <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600" />
-            <span>발주 엑셀 다운로드</span>
+            <span>엑셀 다운로드</span>
           </button>
 
           {selectedKeys.length > 0 && (
@@ -1421,9 +1674,100 @@ export default function AdminOrdersPage() {
         </div>
 
         {/* Search & Filters */}
-        <div className="bg-neutral-50 p-4 border border-neutral-100 select-none space-y-3">
-          <div className="flex flex-col md:flex-row gap-3">
-            <div className="relative flex-1">
+        <div className="bg-neutral-50 p-4 border border-neutral-100 select-none space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
+            <div className="xl:col-span-2">
+              <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest block mb-1.5">기간 설정</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={e => setStartDate(e.target.value)}
+                  className="w-full border border-neutral-200 px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-black bg-white"
+                />
+                <span className="text-neutral-400">~</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={e => setEndDate(e.target.value)}
+                  className="w-full border border-neutral-200 px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-black bg-white"
+                />
+              </div>
+            </div>
+            <SearchableFilterInput
+              id="orders-customer-options"
+              label="판매처"
+              value={customerFilter}
+              onChange={setCustomerFilter}
+              options={customerOptions}
+              placeholder="판매처 입력..."
+            />
+            <SearchableFilterInput
+              id="orders-product-options"
+              label="특정상품"
+              value={productFilter}
+              onChange={setProductFilter}
+              options={productOptions}
+              placeholder="품번/상품명 입력..."
+            />
+            <SearchableFilterInput
+              id="orders-season-options"
+              label="시즌"
+              value={seasonFilter}
+              onChange={setSeasonFilter}
+              options={seasonOptions}
+              placeholder="시즌 입력..."
+            />
+            <div>
+              <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest block mb-1.5">주차</label>
+              <div className="flex gap-2">
+                <div className="relative w-full">
+                  <input
+                    value={weekFrom}
+                    onChange={e => setWeekFrom(e.target.value)}
+                    list="orders-week-options"
+                    placeholder="시작"
+                    className="w-full border border-neutral-200 px-2 py-1.5 pr-6 text-xs font-mono bg-white focus:outline-none focus:border-black"
+                  />
+                  {weekFrom && (
+                    <button
+                      type="button"
+                      onClick={() => setWeekFrom('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-300 hover:text-neutral-800 text-sm leading-none"
+                      aria-label="시작 주차 초기화"
+                    >
+                      x
+                    </button>
+                  )}
+                </div>
+                <div className="relative w-full">
+                  <input
+                    value={weekTo}
+                    onChange={e => setWeekTo(e.target.value)}
+                    list="orders-week-options"
+                    placeholder="끝"
+                    className="w-full border border-neutral-200 px-2 py-1.5 pr-6 text-xs font-mono bg-white focus:outline-none focus:border-black"
+                  />
+                  {weekTo && (
+                    <button
+                      type="button"
+                      onClick={() => setWeekTo('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-300 hover:text-neutral-800 text-sm leading-none"
+                      aria-label="끝 주차 초기화"
+                    >
+                      x
+                    </button>
+                  )}
+                </div>
+                <datalist id="orders-week-options">
+                  {weekOptions.map(week => <option key={week} value={week} />)}
+                </datalist>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_auto_auto] gap-3">
+            <div className="relative">
               <Search className="absolute left-3 top-2.5 w-4 h-4 text-neutral-400" />
               <input 
                 type="text" 
@@ -1459,11 +1803,9 @@ export default function AdminOrdersPage() {
                 className="border border-neutral-200 bg-white py-1.5 px-3 text-xs focus:outline-none focus:border-black rounded-none text-neutral-700"
               >
                 <option value="ALL">전체보기</option>
-                <option value="미입금">미입금</option>
-                <option value="입금완료">입금완료</option>
-                <option value="주결제">주결제</option>
-                <option value="15일결제">15일결제</option>
-                <option value="1달 결제">1달 결제</option>
+                {PAYMENT_STATUS_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
               </select>
             </div>
 
@@ -1539,7 +1881,8 @@ export default function AdminOrdersPage() {
                     if (globalIdx === -1) return null;
 
                     const isConfirmed = order.주문확인 === 'y';
-                    const isPaid = ['입금완료', '주결제', '15일결제', '1달 결제'].includes(order.입금확인 || '');
+                    const displayPaymentStatus = getDisplayPaymentStatus(order.입금확인);
+                    const isPaid = isPaidOrCreditStatus(displayPaymentStatus);
 
                     return (
                       <tr key={rowKey || relativeIdx} className="hover:bg-neutral-50/50 transition-colors">
@@ -1643,21 +1986,19 @@ export default function AdminOrdersPage() {
                         {/* 9. 입금확인 */}
                         <td className="py-2.5 px-3 border-r border-neutral-200">
                           <select
-                            value={order.입금확인 || '미입금'}
+                            value={displayPaymentStatus}
                             onChange={(e) => handleFieldChange(globalIdx, '입금확인', e.target.value)}
                             className={`w-full py-1 px-1.5 border focus:outline-none focus:ring-0 text-[11px] font-bold ${
-                              order.입금확인 === '입금완료'
+                              displayPaymentStatus === '입금완료'
                                 ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
-                                : ['주결제', '15일결제', '1달 결제'].includes(order.입금확인 || '')
+                                : isCreditPaymentStatus(displayPaymentStatus)
                                 ? 'border-blue-300 bg-blue-50 text-blue-800'
                                 : 'border-neutral-200 bg-white text-neutral-500'
                             }`}
                           >
-                            <option value="미입금">미입금</option>
-                            <option value="입금완료">입금완료</option>
-                            <option value="주결제">주결제</option>
-                            <option value="15일결제">15일결제</option>
-                            <option value="1달 결제">1달 결제</option>
+                            {PAYMENT_STATUS_OPTIONS.map(option => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
                           </select>
                         </td>
 
@@ -1963,11 +2304,9 @@ export default function AdminOrdersPage() {
                   onChange={(e) => setBulkFields(prev => ({ ...prev, payStatusValue: e.target.value }))}
                   className="flex-1 py-1 px-1.5 border border-neutral-200 bg-white text-xs disabled:bg-neutral-100 disabled:cursor-not-allowed"
                 >
-                  <option value="미입금">미입금</option>
-                  <option value="입금완료">입금완료</option>
-                  <option value="주결제">주결제</option>
-                  <option value="15일결제">15일결제</option>
-                  <option value="1달 결제">1달 결제</option>
+                  {PAYMENT_STATUS_OPTIONS.map(option => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
                 </select>
               </div>
 

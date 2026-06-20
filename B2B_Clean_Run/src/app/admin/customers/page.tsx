@@ -663,8 +663,11 @@ export default function AdminCustomersPage() {
                           >
                             <option value="당일결제">당일결제</option>
                             <option value="주결제">주결제</option>
-                            <option value="15일결제">15일결제</option>
-                            <option value="1달 결제">1달 결제</option>
+                            <option value="15일결제">15결제</option>
+                            <option value="월결제">월결제</option>
+                            {item.결제방식 === '1달 결제' && (
+                              <option value="1달 결제">월결제</option>
+                            )}
                           </select>
                         </td>
 
