@@ -54,6 +54,7 @@ export function getGradeLabel(grade?: string | null): string {
 }
 
 export function resolveProductPrice(product: Product, grade?: string | null): number {
+  if (Number(product.단가 || 0) <= 0) return 0;
   if (!grade) return 0;
   const trimmedGrade = String(grade).trim().toUpperCase();
   let price = 0;

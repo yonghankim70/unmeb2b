@@ -14,6 +14,7 @@ interface CartSidebarProps {
 }
 
 function resolveProductPrice(product: Product, grade: string): number {
+  if (Number(product.단가 || 0) <= 0) return 0;
   const trimmedGrade = String(grade).trim().toUpperCase();
   let price = 0;
   
@@ -37,6 +38,10 @@ function resolveProductPrice(product: Product, grade: string): number {
   }
 
   return price;
+}
+
+function formatCartPrice(price: number): string {
+  return price > 0 ? `${price.toLocaleString('ko-KR')}원` : '가격문의';
 }
 
 export default function CartSidebar({ isOpen, onClose, customerName, products, discountGrade }: CartSidebarProps) {
@@ -162,6 +167,11 @@ export default function CartSidebar({ isOpen, onClose, customerName, products, d
     const price = resolveProductPrice(matchedProduct, grade);
     return sum + (price * item.quantity);
   }, 0);
+  const checkedInquiryItemsCount = checkedCartItems.reduce((sum, item) => {
+    const matchedProduct = products.find(p => p.상품명 === item.productCode || p.임시코드 === item.productCode);
+    if (!matchedProduct) return sum + 1;
+    return resolveProductPrice(matchedProduct, grade) > 0 ? sum : sum + 1;
+  }, 0);
 
   // 부가세 10% 및 합계 금액 계산
   const vat = Math.floor(checkedTotalSupplyPrice * 0.1);
@@ -204,8 +214,12 @@ export default function CartSidebar({ isOpen, onClose, customerName, products, d
         clipboardText += checkedCartItems.map(item => {
           const matched = products.find(p => p.상품명 === item.productCode || p.임시코드 === item.productCode);
           const price = matched ? resolveProductPrice(matched, grade) : 0;
-          return `- ${item.productCode} (${item.color}) : ${item.quantity}개 (단가: ${price.toLocaleString('ko-KR')}원, 소계: ${(price * item.quantity).toLocaleString('ko-KR')}원)`;
+          const subtotal = price > 0 ? `${(price * item.quantity).toLocaleString('ko-KR')}원` : '가격문의';
+          return `- ${item.productCode} (${item.color}) : ${item.quantity}개 (단가: ${formatCartPrice(price)}, 소계: ${subtotal})`;
         }).join('\n') + `\n\n총 공급가액: ${checkedTotalSupplyPrice.toLocaleString('ko-KR')}원\n부가세 (10%): ${vat.toLocaleString('ko-KR')}원\n최종 합계 금액: ${totalAmount.toLocaleString('ko-KR')}원`;
+        if (checkedInquiryItemsCount > 0) {
+          clipboardText += `\n* 가격문의 상품 ${checkedInquiryItemsCount}종은 합계에서 제외되었습니다.`;
+        }
 
         try {
           await navigator.clipboard.writeText(clipboardText);
@@ -463,16 +477,14 @@ export default function CartSidebar({ isOpen, onClose, customerName, products, d
                       >
                         <Trash2 className="w-4 h-4 stroke-[1.5]" />
                       </button>
-                      {itemPrice > 0 && (
-                        <div className="text-right mt-3">
-                          <p className="text-[10px] text-neutral-400 font-mono">
-                            {itemPrice.toLocaleString('ko-KR')}원
-                          </p>
-                          <p className="text-[12px] font-bold text-neutral-950 font-mono mt-0.5">
-                            {(itemPrice * item.quantity).toLocaleString('ko-KR')}원
-                          </p>
-                        </div>
-                      )}
+                      <div className="text-right mt-3">
+                        <p className="text-[10px] text-neutral-400 font-mono">
+                          {formatCartPrice(itemPrice)}
+                        </p>
+                        <p className="text-[12px] font-bold text-neutral-950 font-mono mt-0.5">
+                          {itemPrice > 0 ? `${(itemPrice * item.quantity).toLocaleString('ko-KR')}원` : '가격문의'}
+                        </p>
+                      </div>
                     </div>
                   </div>
                 );
@@ -531,6 +543,12 @@ export default function CartSidebar({ isOpen, onClose, customerName, products, d
                 <span>공급가액 (VAT 별도)</span>
                 <span className="font-mono text-black font-bold">{checkedTotalSupplyPrice.toLocaleString('ko-KR')}원</span>
               </div>
+
+              {checkedInquiryItemsCount > 0 && (
+                <div className="text-[11px] text-red-500 font-medium text-right">
+                  가격문의 상품 {checkedInquiryItemsCount}종은 합계에서 제외
+                </div>
+              )}
 
               <div className="flex justify-between items-center text-xs tracking-wider text-neutral-800 uppercase font-medium">
                 <span>부가세 (10%)</span>

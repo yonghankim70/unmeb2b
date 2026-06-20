@@ -88,7 +88,7 @@ function buildOrderRows(
   return orderItems.map((item) => {
     const product = productMap.get(item.productCode.trim().toLowerCase());
     let unitPrice = 0;
-    if (product) {
+    if (product && Number(product.단가 || 0) > 0) {
       if (grade === 'S') unitPrice = product.S등급가;
       else if (grade === 'A') unitPrice = product.A등급;
       else if (grade === 'B') unitPrice = product.B등급;
