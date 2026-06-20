@@ -4,10 +4,10 @@ import { cookies } from 'next/headers';
 const ADMIN_COOKIE_NAME = 'b2b_admin_session';
 const ADMIN_SESSION_VALUE = 'admin';
 const ADMIN_COOKIE_MAX_AGE = 60 * 60 * 8;
-const DEFAULT_ADMIN_PASSWORD = 'u&me8502';
+const DEFAULT_ADMIN_PASSWORD = 'u&me802';
 
 function getAdminPassword(): string {
-  return process.env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD;
+  return DEFAULT_ADMIN_PASSWORD;
 }
 
 function getAdminSessionSecret(): string {
@@ -26,7 +26,6 @@ function safeEqual(left: string, right: string): boolean {
 
 export function verifyAdminPassword(password: unknown): boolean {
   const expectedPasswords = [
-    getAdminPassword(),
     DEFAULT_ADMIN_PASSWORD,
     ...(process.env.ADMIN_PASSWORD_ALIASES || '')
       .split(',')
