@@ -3,6 +3,12 @@ import { readExcelData, getExcelPath, recordCustomerLogin } from '@/lib/db';
 import { setAuthSession } from '@/lib/auth';
 import { isCloudDbEnabled } from '@/lib/cloudflareD1';
 import { readCloudCustomers } from '@/lib/cloudData';
+import { setAdminSession, verifyAdminPassword } from '@/lib/adminAuth';
+
+function isAdminLoginName(value: unknown): boolean {
+  const normalized = String(value || '').trim().toLowerCase();
+  return ['admin', 'administrator', '관리자', '운영자'].includes(normalized);
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,6 +22,38 @@ export async function POST(request: NextRequest) {
         { success: false, message: '거래처명을 입력해 주세요.' },
         { status: 400 }
       );
+    }
+
+    if (isAdminLoginName(customerName)) {
+      if (!verifyAdminPassword(password)) {
+        return NextResponse.json(
+          { success: false, message: '관리자 비밀번호가 올바르지 않습니다.' },
+          { status: 401 }
+        );
+      }
+
+      await setAdminSession();
+      const success = await setAuthSession({
+        customerName: '관리자',
+        discountGrade: 'ADMIN',
+        쥔장장바구니허락: 'y',
+        isAdmin: true,
+      });
+
+      if (!success) {
+        return NextResponse.json(
+          { success: false, message: '세션 생성에 실패했습니다.' },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        customerName: '관리자',
+        discountGrade: 'ADMIN',
+        쥔장장바구니허락: 'y',
+        isAdmin: true,
+      });
     }
 
     const excelPath = cloudMode ? 'cloud-d1' : getExcelPath();

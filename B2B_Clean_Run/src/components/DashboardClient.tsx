@@ -496,7 +496,7 @@ export default function DashboardClient({ products, session, globalSettings }: D
     <div className="min-h-screen flex flex-col bg-white relative">
       <div
         className={`min-h-screen flex flex-col transition-all duration-500 ${
-          isGuestAccessBlurred ? 'blur-md' : ''
+          isGuestAccessBlurred && !isLoginModalOpen ? 'blur-md' : ''
         }`}
       >
       
@@ -893,7 +893,7 @@ export default function DashboardClient({ products, session, globalSettings }: D
       />
       </div>
 
-      {!session && isGuestAccessBlurred && (
+      {!session && isGuestAccessBlurred && !isLoginModalOpen && (
         <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/22 px-4">
           <div className="w-full max-w-xl rounded-2xl bg-white/92 backdrop-blur-sm border border-neutral-200 shadow-2xl px-8 py-10 text-center">
             <p className="text-[11px] tracking-[0.28em] uppercase text-neutral-500 mb-4 font-medium">

