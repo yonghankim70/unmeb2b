@@ -4,11 +4,12 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Product, ItemMaster, ColorMaster, CategoryMaster, Customer } from '@/lib/db';
 import { useRouter, usePathname } from 'next/navigation';
 import { clearAdminAuthCache, hasFreshAdminAuthCache, markAdminAuthenticated, prefetchAdminRoutes, verifyAdminStatus } from '@/lib/adminClient';
-import { getApiImageUrl, getCachedDetailImageUrl, getEncodedOptimizedDetailImageUrl, getLegacyDetailImageUrl, useImageFallbacks as applyImageFallbacks } from '@/lib/imageUrls';
+import { getApiImageUrl, getCachedDetailImageUrl, getCachedMainImageUrl, getEncodedOptimizedDetailImageUrl, getLegacyDetailImageUrl, useImageFallbacks as applyImageFallbacks } from '@/lib/imageUrls';
+import { getProductMainCategories, isOwnerCartCandidate, sortProductsForStorefront } from '@/lib/productVisibility';
 import { 
   Lock, Save, RefreshCw, Trash2, Search, Plus, 
   ArrowLeft, ArrowUpDown, ChevronDown, Check, AlertCircle, HelpCircle, Calculator, FileUp, FileDown,
-  Image as ImageIcon, ArrowLeftRight,
+  Image as ImageIcon, ArrowLeftRight, Crown, GripVertical,
   Settings
 } from 'lucide-react';
 
@@ -94,6 +95,19 @@ const ALL_COLUMNS: ColumnMeta[] = [
 const CLOUD_DETAIL_WIDTHS = [1200, 1600] as const;
 const CLOUD_MAIN_WIDTHS = [480, 720] as const;
 const MAX_CLOUD_UPLOAD_IMAGES = 10;
+const SORT_MANAGER_OWNER_CART = 'OWNER-CART';
+const SORT_MANAGER_CATEGORIES = ['ALL', 'NEW', '선기획', 'KNIT', 'TOP', 'BOTTOM', 'OUTER', 'ONE-PIECE', SORT_MANAGER_OWNER_CART] as const;
+const SORT_MANAGER_LABELS: Record<string, string> = {
+  ALL: '전체',
+  NEW: '신상',
+  선기획: '선기획',
+  KNIT: '니트',
+  TOP: '상의',
+  BOTTOM: '하의',
+  OUTER: '아우터',
+  'ONE-PIECE': '원피스',
+  [SORT_MANAGER_OWNER_CART]: '쥔장장바구니',
+};
 
 interface UploadVariantManifestItem {
   field: string;
@@ -119,6 +133,26 @@ function mergeClientImageNames(...groups: unknown[][]): string[] {
 
 function getProductCode(product: Product | null | undefined): string {
   return String(product?.임시코드 || product?.상품명 || '').trim();
+}
+
+function normalizeExposureValue(product: Product): string {
+  return String(product.노출여부 || '').trim().toLowerCase();
+}
+
+function isProductVisibleInSortManager(product: Product, category: string): boolean {
+  if (category === SORT_MANAGER_OWNER_CART) {
+    return isOwnerCartCandidate(product) && String(product.쥔장장바구니노출 || 'y').trim().toLowerCase() !== 'n';
+  }
+
+  const exposure = normalizeExposureValue(product);
+  if (!exposure || exposure === 'n') return false;
+  if (category === 'ALL') return true;
+  return getProductMainCategories(product).includes(category);
+}
+
+function getCategoryDisplayOrderMap(product: Product): Record<string, number> {
+  const value = product.카테고리노출순서;
+  return value && typeof value === 'object' && !Array.isArray(value) ? { ...value } : {};
 }
 
 function getReadableResponseError(rawText: string, status: number, fallback: string): string {
@@ -900,6 +934,12 @@ export default function AdminPage() {
   const [imageDropActive, setImageDropActive] = useState(false);
   const [draggedImageName, setDraggedImageName] = useState<string | null>(null);
   const [dragOverImageName, setDragOverImageName] = useState<string | null>(null);
+  const [isSortManagerOpen, setIsSortManagerOpen] = useState(false);
+  const [sortManagerCategory, setSortManagerCategory] = useState<string>('ALL');
+  const [sortManagerItems, setSortManagerItems] = useState<Product[]>([]);
+  const [sortManagerSaving, setSortManagerSaving] = useState(false);
+  const [draggedSortProductKey, setDraggedSortProductKey] = useState<string | null>(null);
+  const [dragOverSortProductKey, setDragOverSortProductKey] = useState<string | null>(null);
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
   const [newProductForm, setNewProductForm] = useState({
     상품명: '',
@@ -1221,6 +1261,101 @@ export default function AdminPage() {
     if (keys.length === 0) return;
     setDirtyProductKeys(prev => Array.from(new Set([...prev, ...keys])));
     setDeletedProductKeys(prev => prev.filter(existing => !keys.includes(existing)));
+  };
+
+  const getSortManagerBaseItems = () => {
+    return products.filter((product) => isProductVisibleInSortManager(product, sortManagerCategory));
+  };
+
+  useEffect(() => {
+    if (!isSortManagerOpen) return;
+    setSortManagerItems(sortProductsForStorefront(getSortManagerBaseItems(), sortManagerCategory));
+    setDraggedSortProductKey(null);
+    setDragOverSortProductKey(null);
+  }, [isSortManagerOpen, sortManagerCategory, products]);
+
+  const moveSortManagerItem = (targetKey: string) => {
+    if (!draggedSortProductKey || draggedSortProductKey === targetKey) {
+      setDraggedSortProductKey(null);
+      setDragOverSortProductKey(null);
+      return;
+    }
+
+    setSortManagerItems((prev) => {
+      const fromIndex = prev.findIndex((product) => getProductKey(product) === draggedSortProductKey);
+      const toIndex = prev.findIndex((product) => getProductKey(product) === targetKey);
+      if (fromIndex < 0 || toIndex < 0) return prev;
+
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+    setDraggedSortProductKey(null);
+    setDragOverSortProductKey(null);
+  };
+
+  const getSortManagerImageUrl = (product: Product) => {
+    const code = getProductCode(product);
+    if (!product.주차 || !code) return '';
+    return withCacheBuster(getCachedMainImageUrl(product));
+  };
+
+  const handleSaveSortManagerOrder = async () => {
+    if (sortManagerSaving) return;
+    const orderMap = new Map(sortManagerItems.map((product, index) => [getProductKey(product), index + 1]));
+    const changedKeys: string[] = [];
+    const nextProducts = products.map((product) => {
+      const key = getProductKey(product);
+      const nextOrder = orderMap.get(key);
+      if (!key || !nextOrder) return product;
+
+      const currentOrderMap = getCategoryDisplayOrderMap(product);
+      if (Number(currentOrderMap[sortManagerCategory] || 0) === nextOrder) {
+        return product;
+      }
+
+      changedKeys.push(key);
+      return {
+        ...product,
+        카테고리노출순서: {
+          ...currentOrderMap,
+          [sortManagerCategory]: nextOrder,
+        },
+      };
+    });
+
+    const changedProducts = nextProducts.filter((product) => changedKeys.includes(getProductKey(product)));
+    if (changedProducts.length === 0) {
+      alert('변경된 노출 순서가 없습니다.');
+      return;
+    }
+
+    setSortManagerSaving(true);
+    try {
+      const res = await fetch('/api/admin/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          replaceAllProducts: false,
+          products: changedProducts,
+        }),
+      });
+      const data = await readJsonResponse(res, '노출순서 저장 실패');
+      if (!res.ok || !data?.success) {
+        alert(data?.message || '노출순서 저장에 실패했습니다.');
+        return;
+      }
+
+      setProducts(nextProducts);
+      setDirtyProductKeys((prev) => prev.filter((key) => !changedKeys.includes(key)));
+      alert(`${SORT_MANAGER_LABELS[sortManagerCategory] || sortManagerCategory} 카테고리 노출 순서 ${changedProducts.length}개가 저장되었습니다.`);
+    } catch (error: any) {
+      console.error(error);
+      alert(error?.message || '노출순서 저장 중 오류가 발생했습니다.');
+    } finally {
+      setSortManagerSaving(false);
+    }
   };
 
   // 2안 옵션: 주문서 관리용 상태 및 함수
@@ -2633,6 +2768,18 @@ export default function AdminPage() {
             <Settings className="w-3.5 h-3.5 text-neutral-600" />
             <span>카테고리/포인트 관리</span>
           </button>
+
+          <button
+            onClick={() => {
+              setSortManagerCategory('ALL');
+              setIsSortManagerOpen(true);
+            }}
+            className="flex items-center space-x-1.5 hover:text-black transition-colors border border-neutral-200 px-3.5 py-1.5 bg-white font-medium"
+            title="쇼핑몰 카테고리별 상품 노출 순서를 썸네일 드래그로 조정합니다."
+          >
+            <ArrowUpDown className="w-3.5 h-3.5 text-neutral-600" />
+            <span>노출순서 관리</span>
+          </button>
         </div>
       </header>
 
@@ -3502,6 +3649,159 @@ export default function AdminPage() {
                 이미지 반영 작업을 진행 중입니다.
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {isSortManagerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-6xl bg-white border border-neutral-200 shadow-2xl rounded-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200">
+              <div>
+                <h2 className="text-sm font-semibold tracking-widest uppercase text-neutral-900 flex items-center gap-2">
+                  <ArrowUpDown className="w-4 h-4" />
+                  노출순서 관리
+                </h2>
+                <p className="text-xs text-neutral-500 mt-1">
+                  1순위: 드래그 저장 순서 / 2순위: 추천 왕관 / 3순위: 최신 신상품
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSortManagerOpen(false)}
+                disabled={sortManagerSaving}
+                className="text-xs border border-neutral-200 px-3 py-1.5 text-neutral-600 hover:bg-neutral-50"
+              >
+                닫기
+              </button>
+            </div>
+
+            <div className="px-6 py-4 border-b border-neutral-200 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div className="flex flex-wrap gap-2">
+                {SORT_MANAGER_CATEGORIES.map((category) => (
+                  <button
+                    key={category}
+                    type="button"
+                    onClick={() => setSortManagerCategory(category)}
+                    disabled={sortManagerSaving}
+                    className={`px-4 py-2 text-xs font-semibold tracking-wider border rounded-full transition-colors ${
+                      sortManagerCategory === category
+                        ? 'bg-black text-white border-black'
+                        : 'bg-white text-neutral-700 border-neutral-200 hover:border-neutral-500'
+                    }`}
+                  >
+                    {SORT_MANAGER_LABELS[category]}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSortManagerItems(sortProductsForStorefront(getSortManagerBaseItems(), sortManagerCategory))}
+                  disabled={sortManagerSaving}
+                  className="px-4 py-2 text-xs border border-neutral-200 text-neutral-700 hover:bg-neutral-50 disabled:opacity-40"
+                >
+                  되돌리기
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveSortManagerOrder}
+                  disabled={sortManagerSaving || sortManagerItems.length === 0}
+                  className="px-5 py-2 text-xs bg-black text-white font-semibold tracking-widest hover:bg-neutral-800 disabled:bg-neutral-300"
+                >
+                  {sortManagerSaving ? '저장 중...' : '드래그 순서 저장'}
+                </button>
+              </div>
+            </div>
+
+            <div className="px-6 py-3 border-b border-neutral-200 text-xs text-neutral-500 flex flex-wrap items-center gap-x-5 gap-y-2">
+              <span>
+                현재 카테고리: <strong className="text-neutral-900">{SORT_MANAGER_LABELS[sortManagerCategory] || sortManagerCategory}</strong>
+              </span>
+              <span>대상 상품: <strong className="text-neutral-900">{sortManagerItems.length}</strong>개</span>
+              <span>저장 후 고객 쇼핑몰 정렬에 바로 반영됩니다.</span>
+            </div>
+
+            <div className="max-h-[72vh] overflow-y-auto p-6 bg-neutral-50">
+              {sortManagerItems.length === 0 ? (
+                <div className="py-20 text-center text-sm text-neutral-400 bg-white border border-dashed border-neutral-200">
+                  이 카테고리에 노출 중인 상품이 없습니다.
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-4">
+                  {sortManagerItems.map((product, index) => {
+                    const key = getProductKey(product);
+                    const imageUrl = getSortManagerImageUrl(product);
+                    const isDragging = draggedSortProductKey === key;
+                    const isDragOver = dragOverSortProductKey === key && draggedSortProductKey !== key;
+                    return (
+                      <div
+                        key={key}
+                        draggable={!sortManagerSaving}
+                        onDragStart={() => {
+                          setDraggedSortProductKey(key);
+                          setDragOverSortProductKey(key);
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          if (!sortManagerSaving) setDragOverSortProductKey(key);
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (!sortManagerSaving) moveSortManagerItem(key);
+                        }}
+                        onDragEnd={() => {
+                          setDraggedSortProductKey(null);
+                          setDragOverSortProductKey(null);
+                        }}
+                        className={`bg-white border rounded-lg overflow-hidden shadow-sm cursor-grab active:cursor-grabbing transition-all ${
+                          isDragging ? 'opacity-45 scale-[0.98]' : ''
+                        } ${isDragOver ? 'ring-2 ring-black border-black' : 'border-neutral-200'}`}
+                      >
+                        <div className="relative aspect-[3/4] bg-neutral-100">
+                          {imageUrl ? (
+                            <img
+                              src={imageUrl}
+                              alt=""
+                              draggable={false}
+                              className="w-full h-full object-cover pointer-events-none"
+                              onError={(event) => applyImageFallbacks(event, [
+                                withCacheBuster(getApiImageUrl(product)),
+                              ])}
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-[11px] text-neutral-400">
+                              NO IMG
+                            </div>
+                          )}
+                          <div className="absolute top-2 left-2 bg-black text-white text-[11px] font-bold px-2 py-1 rounded-full">
+                            {index + 1}
+                          </div>
+                          {Number(product.추천 || 0) > 0 && (
+                            <div className="absolute top-2 right-2 bg-white text-amber-600 border border-amber-200 rounded-full w-7 h-7 flex items-center justify-center shadow-sm">
+                              <Crown className="w-3.5 h-3.5" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="p-3 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-bold text-neutral-900 truncate">
+                              {product.상품명 || product.임시코드}
+                            </span>
+                            <GripVertical className="w-4 h-4 text-neutral-400 shrink-0" />
+                          </div>
+                          <div className="text-[10px] text-neutral-500 space-y-0.5">
+                            <div className="truncate">{product.임시코드 || '-'}</div>
+                            <div>{product.업로드일자 || '-'} / {product.주차 || '-'}</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

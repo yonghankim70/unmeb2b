@@ -135,3 +135,89 @@ export function getProductMainCategories(product: Product): string[] {
 
   return Array.from(mainCategories);
 }
+
+function getProductCode(product: Product): string {
+  return String(product.임시코드 || product.상품명 || '').trim();
+}
+
+function parseUploadDateScore(value: unknown): number {
+  const raw = String(value || '').trim();
+  if (!raw) return 0;
+
+  const isoMatch = raw.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
+    return new Date(Number(year), Number(month) - 1, Number(day)).getTime();
+  }
+
+  const monthDayMatch = raw.match(/^(\d{1,2})[-./](\d{1,2})/);
+  if (monthDayMatch) {
+    const [, month, day] = monthDayMatch;
+    return new Date(new Date().getFullYear(), Number(month) - 1, Number(day)).getTime();
+  }
+
+  const parsed = Date.parse(raw);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function fallbackNewestCompare(a: Product, b: Product): number {
+  const uploadDateDiff = parseUploadDateScore(b.업로드일자) - parseUploadDateScore(a.업로드일자);
+  if (uploadDateDiff !== 0) return uploadDateDiff;
+
+  const weekDiff = String(b.주차 || '').localeCompare(String(a.주차 || ''), undefined, { numeric: true, sensitivity: 'base' });
+  if (weekDiff !== 0) return weekDiff;
+
+  return getProductCode(b).localeCompare(getProductCode(a), undefined, { numeric: true, sensitivity: 'base' });
+}
+
+export function getManualCategoryDisplayOrder(product: Product, category: string): number | null {
+  const orderMap = product.카테고리노출순서;
+  if (!orderMap || typeof orderMap !== 'object') return null;
+
+  const candidates = [
+    category,
+    category.toUpperCase(),
+    category === 'ALL' ? '전체' : '',
+    category === 'OWNER-CART' ? '쥔장장바구니' : '',
+  ].filter(Boolean);
+
+  for (const key of candidates) {
+    const value = Number(orderMap[key]);
+    if (Number.isFinite(value) && value > 0) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+export function compareProductsForStorefront(a: Product, b: Product, category: string): number {
+  const aManualOrder = getManualCategoryDisplayOrder(a, category);
+  const bManualOrder = getManualCategoryDisplayOrder(b, category);
+
+  if (aManualOrder !== null && bManualOrder !== null) {
+    const manualDiff = aManualOrder - bManualOrder;
+    if (manualDiff !== 0) return manualDiff;
+  } else if (aManualOrder !== null) {
+    return -1;
+  } else if (bManualOrder !== null) {
+    return 1;
+  }
+
+  const aRecommended = Number(a.추천 || 0) > 0;
+  const bRecommended = Number(b.추천 || 0) > 0;
+
+  if (aRecommended && !bRecommended) return -1;
+  if (!aRecommended && bRecommended) return 1;
+
+  if (aRecommended && bRecommended) {
+    const recommendedDiff = Number(a.추천 || 0) - Number(b.추천 || 0);
+    if (recommendedDiff !== 0) return recommendedDiff;
+  }
+
+  return fallbackNewestCompare(a, b);
+}
+
+export function sortProductsForStorefront(products: Product[], category: string): Product[] {
+  return [...products].sort((a, b) => compareProductsForStorefront(a, b, category));
+}

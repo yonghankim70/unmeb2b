@@ -20,6 +20,7 @@ import {
   isOwnerCartAllowed,
   shouldShowOwnerCartProduct,
   shouldShowProduct,
+  sortProductsForStorefront,
 } from '@/lib/productVisibility';
 import { ShoppingBag, LogOut, Award, Sparkles, Plus, Crown, Phone, MessageSquare, X } from 'lucide-react';
 
@@ -243,31 +244,11 @@ export default function DashboardClient({ products, session, globalSettings }: D
       : shouldShowProduct(p, session)
   ));
 
-  // - Sort by: Recommended (oldest first) -> Normal (newest first)
-  const sortedProducts = [...filteredProducts].sort((a, b) => {
-    const aRec = !!a.추천;
-    const bRec = !!b.추천;
-
-    if (aRec && !bRec) return -1;
-    if (!aRec && bRec) return 1;
-
-    if (aRec && bRec) {
-      // Recommended: Oldest first (ascending order of week)
-      const cmp = (a.주차 || '').localeCompare(b.주차 || '');
-      if (cmp !== 0) return cmp;
-      return (a.임시코드 || a.상품명 || '').localeCompare(b.임시코드 || b.상품명 || '');
-    } else {
-      // Normal: Newest first (descending order of week)
-      const cmp = (b.주차 || '').localeCompare(a.주차 || '');
-      if (cmp !== 0) return cmp;
-      return (b.임시코드 || b.상품명 || '').localeCompare(a.임시코드 || a.상품명 || '');
-    }
-  });
-
   // Apply Category selection
-  const displayedProducts = selectedCategory === 'ALL' || selectedCategory === OWNER_CART_CATEGORY
-    ? sortedProducts 
-    : sortedProducts.filter(p => getProductMainCategories(p).includes(selectedCategory));
+  const categoryProducts = selectedCategory === 'ALL' || selectedCategory === OWNER_CART_CATEGORY
+    ? filteredProducts
+    : filteredProducts.filter(p => getProductMainCategories(p).includes(selectedCategory));
+  const displayedProducts = sortProductsForStorefront(categoryProducts, selectedCategory);
   const visibleProducts = displayedProducts.slice(0, visibleProductCount);
   const visiblePrefetchKey = visibleProducts
     .slice(0, 8)

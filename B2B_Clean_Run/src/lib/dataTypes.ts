@@ -41,6 +41,7 @@ export interface Product {
   등급할인제외?: string;
   동기화시간?: string;
   상세이미지목록?: string[];
+  카테고리노출순서?: Record<string, number>;
 }
 
 export interface ItemMaster {
@@ -157,6 +158,15 @@ function asNumber(value: unknown): number {
 export function formatProduct(p: any): Product {
   const unitPrice = asNumber(p['단가']);
   const hasUnitPrice = unitPrice > 0;
+  const rawCategoryDisplayOrder = p['카테고리노출순서'];
+  const categoryDisplayOrder = rawCategoryDisplayOrder && typeof rawCategoryDisplayOrder === 'object' && !Array.isArray(rawCategoryDisplayOrder)
+    ? Object.fromEntries(
+        Object.entries(rawCategoryDisplayOrder)
+          .map(([key, value]) => [String(key).trim(), asNumber(value)])
+          .filter(([key, value]) => key && Number(value) > 0)
+      )
+    : undefined;
+
   return {
     업로드일자: asString(p['업로드일자']),
     노출여부: asString(p['노출여부']),
@@ -192,5 +202,6 @@ export function formatProduct(p: any): Product {
     등급할인제외: asString(p['등급할인제외'] || ''),
     동기화시간: asString(p['동기화시간'] || ''),
     상세이미지목록: Array.isArray(p['상세이미지목록']) ? p['상세이미지목록'] : undefined,
+    카테고리노출순서: categoryDisplayOrder,
   };
 }
