@@ -2,9 +2,10 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, BarChart3, RefreshCw, Search } from 'lucide-react';
+import { ArrowLeft, BarChart3, FileSpreadsheet, RefreshCw, Search } from 'lucide-react';
 import { clearAdminAuthCache, hasFreshAdminAuthCache, markAdminAuthenticated, prefetchAdminRoutes, verifyAdminStatus } from '@/lib/adminClient';
 import { CartSnapshotItem, Customer, CustomerOrder, Product } from '@/lib/db';
+import * as xlsx from 'xlsx';
 
 type AnalysisMode = 'sales' | 'cart';
 type GroupMode = 'product' | 'color' | 'size' | 'customer' | 'week';
@@ -240,7 +241,7 @@ export default function AdminAnalysisPage() {
     return Array.from(names).sort();
   }, [customers, orders, cartSnapshots]);
 
-  const records = useMemo(() => {
+  const records = useMemo<AnalysisRecord[]>(() => {
     if (analysisMode === 'sales') {
       return orders.map(order => {
         const product = productMap.get(normalizeKey(order.상품코드));
@@ -407,6 +408,83 @@ export default function AdminAnalysisPage() {
     setSearchTerm('');
   };
 
+  const handleExportAnalysis = () => {
+    if (groupedRows.length === 0 && filteredRecords.length === 0) {
+      alert('다운로드할 분석 데이터가 없습니다.');
+      return;
+    }
+
+    const modeLabel = analysisMode === 'sales' ? '판매분석' : '장바구니분석';
+    const groupLabel = {
+      product: '상품별',
+      color: '컬러별',
+      size: '사이즈별',
+      customer: '판매처별',
+      week: '주차별',
+    }[groupMode];
+
+    const summaryRows = groupedRows.map((row, index) => ({
+      순번: index + 1,
+      분석구분: modeLabel,
+      집계기준: groupLabel,
+      기준값: row.label,
+      대표품번: row.productCode || '',
+      대표품명: row.productName || '',
+      컬러: row.color || '',
+      사이즈: row.size || '',
+      주차: row.week || '',
+      시즌: row.season || '',
+      아이템: row.item || '',
+      카테고리: row.category || '',
+      총수량: row.quantity,
+      금액: Math.round(row.amount || 0),
+      거래처수: row.customerCount,
+      상품수: row.productCount,
+      컬러수: row.colorCount,
+      최근일: row.lastDate || '',
+    }));
+
+    const detailRows = filteredRecords.map((record, index) => ({
+      순번: index + 1,
+      분석구분: modeLabel,
+      기준일: record.date || record.updatedAt || '',
+      거래처명: record.customerName || '',
+      상품코드: record.productCode || '',
+      상품명: record.productName || '',
+      컬러: record.color || '',
+      사이즈: record.size || '',
+      수량: record.quantity,
+      금액: Math.round(record.amount || 0),
+      주차: record.week || '',
+      시즌: record.season || '',
+      아이템: record.item || '',
+      카테고리: record.category || '',
+      갱신일시: record.updatedAt || '',
+    }));
+
+    const conditionRows = [
+      { 항목: '분석구분', 값: modeLabel },
+      { 항목: '집계기준', 값: groupLabel },
+      { 항목: '기간', 값: `${startDate || '전체'} ~ ${endDate || '전체'}` },
+      { 항목: '판매처', 값: customerFilter || '전체' },
+      { 항목: '특정상품', 값: productFilter || '전체' },
+      { 항목: '시즌', 값: seasonFilter || '전체' },
+      { 항목: '주차', 값: `${weekFrom || '전체'} ~ ${weekTo || '전체'}` },
+      { 항목: '검색어', 값: searchTerm || '없음' },
+      { 항목: '총수량', 값: totalQuantity },
+      { 항목: analysisMode === 'sales' ? '판매금액' : '예상금액', 값: Math.round(totalAmount || 0) },
+      { 항목: '거래처수', 값: activeCustomerCount },
+      { 항목: '상품수', 값: activeProductCount },
+      { 항목: '다운로드일시', 값: new Date().toLocaleString('ko-KR') },
+    ];
+
+    const workbook = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(workbook, xlsx.utils.json_to_sheet(summaryRows), '분석집계');
+    xlsx.utils.book_append_sheet(workbook, xlsx.utils.json_to_sheet(detailRows), '상세데이터');
+    xlsx.utils.book_append_sheet(workbook, xlsx.utils.json_to_sheet(conditionRows), '조회조건');
+    xlsx.writeFile(workbook, `Analysis_${modeLabel}_${groupLabel}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
   if (loadingAuth || !isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#fafafa]">
@@ -425,14 +503,24 @@ export default function AdminAnalysisPage() {
           <ArrowLeft className="w-4 h-4" />
           <span className="font-mono uppercase tracking-widest text-[10px]">Back to Shop</span>
         </button>
-        <button
-          onClick={loadData}
-          disabled={loading}
-          className="flex items-center gap-1.5 border border-neutral-200 bg-white px-3 py-1.5 text-[11px] font-mono text-neutral-600 hover:text-black hover:border-neutral-400 disabled:opacity-50"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          새로고침
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExportAnalysis}
+            disabled={loading || filteredRecords.length === 0}
+            className="flex items-center gap-1.5 border border-neutral-200 bg-white px-3 py-1.5 text-[11px] font-mono text-neutral-600 hover:text-black hover:border-neutral-400 disabled:opacity-50"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600" />
+            엑셀 다운로드
+          </button>
+          <button
+            onClick={loadData}
+            disabled={loading}
+            className="flex items-center gap-1.5 border border-neutral-200 bg-white px-3 py-1.5 text-[11px] font-mono text-neutral-600 hover:text-black hover:border-neutral-400 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            새로고침
+          </button>
+        </div>
       </header>
 
       <main className="flex-1 p-6 md:p-12 space-y-6">
