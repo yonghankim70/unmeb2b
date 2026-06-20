@@ -24,7 +24,7 @@ interface ProductDetailModalProps {
     customerName: string;
     discountGrade: string;
   } | null;
-  onAddToCart: (product: Product, selectedColor: string, quantity: number) => void;
+  onAddToCart: (product: Product, selectedColor: string, selectedSize: string, quantity: number) => void;
 }
 
 interface VideoPlayerProps {
@@ -227,6 +227,16 @@ function parseColors(colorStr: string): string[] {
   return parsed;
 }
 
+function parseSizes(sizeStr: string): string[] {
+  if (!sizeStr) return [];
+  const normalized = sizeStr.trim();
+  if (!normalized || normalized.toLowerCase() === 'free') return [];
+  return normalized
+    .split(/[,/|·\s]+/)
+    .map(size => size.trim())
+    .filter(Boolean);
+}
+
 export default function ProductDetailModal({
   isOpen,
   onClose,
@@ -242,6 +252,7 @@ export default function ProductDetailModal({
   const [images, setImages] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedColor, setSelectedColor] = useState('');
+  const [selectedSize, setSelectedSize] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [addingSuccess, setAddingSuccess] = useState(false);
 
@@ -360,6 +371,7 @@ export default function ProductDetailModal({
       setQuantity(1);
       setAddingSuccess(false);
       setSelectedColor(parseColors(product.컬러)[0] || '');
+      setSelectedSize(parseSizes(product.사이즈)[0] || '');
     });
 
     prefetchProductDetails(product)
@@ -420,18 +432,18 @@ export default function ProductDetailModal({
 
   const resolvedPrice = session ? resolveProductPrice(product, session.discountGrade) : 0;
   const colors = parseColors(product.컬러);
+  const sizes = parseSizes(product.사이즈);
 
   const handleAdd = () => {
     const finalQty = quantity <= 0 ? 1 : quantity;
-    onAddToCart(product, selectedColor, finalQty);
+    onAddToCart(product, selectedColor, selectedSize, finalQty);
     setAddingSuccess(true);
     setTimeout(() => {
       setAddingSuccess(false);
     }, 1500);
   };
 
-  // Format size display
-  const showSize = product.사이즈 && product.사이즈.trim().toLowerCase() !== 'free';
+  const showSize = sizes.length > 0;
   const displayImages = images.length > 0 ? images : [INSTANT_MAIN_IMAGE];
 
   return (
@@ -583,12 +595,24 @@ export default function ProductDetailModal({
                   {/* Size (Shown only if not 'free' or empty) */}
                   {showSize && (
                     <div>
-                      <span className="block text-[9.5px] md:text-[10px] uppercase tracking-widest text-neutral-400 font-medium mb-1 md:mb-1.5">
+                      <span className="block text-[10px] md:text-[10.5px] uppercase tracking-widest text-neutral-400 font-medium mb-1.5 md:mb-2.5">
                         사이즈
                       </span>
-                      <p className="text-xs text-neutral-800 font-mono">
-                        {product.사이즈}
-                      </p>
+                      <div className="flex flex-wrap gap-1.5 md:gap-2">
+                        {sizes.map((size) => (
+                          <button
+                            key={size}
+                            onClick={() => setSelectedSize(size)}
+                            className={`text-[11px] md:text-[12px] tracking-wider px-3.5 py-2 md:px-4.5 md:py-2.5 border transition-all duration-200 rounded-[5px] min-w-[58px] md:min-w-[68px] text-center ${
+                              selectedSize === size
+                                ? 'bg-[#615b51] text-white border-transparent font-semibold shadow-sm'
+                                : 'bg-white border-neutral-200 text-neutral-600 hover:border-neutral-400 hover:text-neutral-900'
+                            }`}
+                          >
+                            {size}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   )}
 

@@ -44,6 +44,18 @@ function formatCartPrice(price: number): string {
   return price > 0 ? `${price.toLocaleString('ko-KR')}원` : '가격문의';
 }
 
+function cartLineKey(productCode: string, color: string, size?: string): string {
+  return [productCode, color, size || ''].map(value => String(value || '').trim().toLowerCase()).join('_');
+}
+
+function cartTempKey(productCode: string, color: string, size?: string): string {
+  return [productCode, color, size || ''].map(value => String(value || '').trim()).join('-');
+}
+
+function optionLabel(color: string, size?: string): string {
+  return size ? `${color} / ${size}` : color;
+}
+
 export default function CartSidebar({ isOpen, onClose, customerName, products, discountGrade }: CartSidebarProps) {
   const { cartItems, updateQuantity, removeFromCart, clearCart } = useCart();
   const [copied, setCopied] = useState(false);
@@ -141,13 +153,13 @@ export default function CartSidebar({ isOpen, onClose, customerName, products, d
 
   if (!isOpen) return null;
 
-  const isItemChecked = (productCode: string, color: string) => {
-    const key = `${productCode}_${color}`;
+  const isItemChecked = (productCode: string, color: string, size?: string) => {
+    const key = cartLineKey(productCode, color, size);
     return checkedItems[key] !== false;
   };
 
-  const toggleCheck = (productCode: string, color: string) => {
-    const key = `${productCode}_${color}`;
+  const toggleCheck = (productCode: string, color: string, size?: string) => {
+    const key = cartLineKey(productCode, color, size);
     setCheckedItems(prev => ({
       ...prev,
       [key]: prev[key] === false ? true : false
@@ -155,7 +167,7 @@ export default function CartSidebar({ isOpen, onClose, customerName, products, d
   };
 
   // 1. 체크된 품목들만 필터링
-  const checkedCartItems = cartItems.filter(item => isItemChecked(item.productCode, item.color));
+  const checkedCartItems = cartItems.filter(item => isItemChecked(item.productCode, item.color, item.size));
   const checkedItemsCount = checkedCartItems.length;
   const checkedTotalQuantity = checkedCartItems.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -198,6 +210,7 @@ export default function CartSidebar({ isOpen, onClose, customerName, products, d
           items: checkedCartItems.map(item => ({
             productCode: item.productCode,
             color: item.color,
+            size: item.size || '',
             quantity: item.quantity
           }))
         }),
@@ -215,7 +228,7 @@ export default function CartSidebar({ isOpen, onClose, customerName, products, d
           const matched = products.find(p => p.상품명 === item.productCode || p.임시코드 === item.productCode);
           const price = matched ? resolveProductPrice(matched, grade) : 0;
           const subtotal = price > 0 ? `${(price * item.quantity).toLocaleString('ko-KR')}원` : '가격문의';
-          return `- ${item.productCode} (${item.color}) : ${item.quantity}개 (단가: ${formatCartPrice(price)}, 소계: ${subtotal})`;
+          return `- ${item.productCode} (${optionLabel(item.color, item.size)}) : ${item.quantity}개 (단가: ${formatCartPrice(price)}, 소계: ${subtotal})`;
         }).join('\n') + `\n\n총 공급가액: ${checkedTotalSupplyPrice.toLocaleString('ko-KR')}원\n부가세 (10%): ${vat.toLocaleString('ko-KR')}원\n최종 합계 금액: ${totalAmount.toLocaleString('ko-KR')}원`;
         if (checkedInquiryItemsCount > 0) {
           clipboardText += `\n* 가격문의 상품 ${checkedInquiryItemsCount}종은 합계에서 제외되었습니다.`;
@@ -232,7 +245,7 @@ export default function CartSidebar({ isOpen, onClose, customerName, products, d
         
         // 3. Remove only the checked (ordered) items from cart
         checkedCartItems.forEach(item => {
-          removeFromCart(item.productCode, item.color);
+          removeFromCart(item.productCode, item.color, item.size);
         });
         
         // Reset check status & memo
@@ -347,12 +360,14 @@ export default function CartSidebar({ isOpen, onClose, customerName, products, d
                   ? `/api/image?week=${encodeURIComponent(matchedProduct.주차)}&code=${encodeURIComponent(code)}`
                   : null;
 
-                const isChecked = isItemChecked(item.productCode, item.color);
+                const isChecked = isItemChecked(item.productCode, item.color, item.size);
                 const itemPrice = matchedProduct ? resolveProductPrice(matchedProduct, grade) : 0;
+                const lineKey = cartLineKey(item.productCode, item.color, item.size);
+                const tempKey = cartTempKey(item.productCode, item.color, item.size);
 
                 return (
                   <div 
-                    key={`${item.productCode}-${item.color}`}
+                    key={lineKey}
                     className="flex py-4 border-b border-neutral-100/50 last:border-0 items-start gap-4"
                   >
                     {/* Checkbox */}
@@ -360,7 +375,7 @@ export default function CartSidebar({ isOpen, onClose, customerName, products, d
                       <input 
                         type="checkbox"
                         checked={isChecked}
-                        onChange={() => toggleCheck(item.productCode, item.color)}
+                        onChange={() => toggleCheck(item.productCode, item.color, item.size)}
                         className="w-4.5 h-4.5 text-black border-neutral-300 rounded focus:ring-black cursor-pointer bg-white"
                       />
                     </div>
@@ -392,19 +407,23 @@ export default function CartSidebar({ isOpen, onClose, customerName, products, d
                       <p className="text-[11px] text-neutral-800 font-medium mt-1">
                         컬러: {item.color}
                       </p>
+                      {item.size && (
+                        <p className="text-[11px] text-neutral-800 font-medium mt-0.5">
+                          사이즈: {item.size}
+                        </p>
+                      )}
                       
                       {/* Quantity Controls */}
                       <div className="flex items-center space-x-2 mt-3">
                         <button 
                           type="button"
                           onClick={() => {
-                            const itemKey = `${item.productCode}-${item.color}`;
                             setTempQuantities(prev => {
                               const copy = { ...prev };
-                              delete copy[itemKey];
+                              delete copy[tempKey];
                               return copy;
                             });
-                            updateQuantity(item.productCode, item.color, Math.max(1, item.quantity - 1));
+                            updateQuantity(item.productCode, item.color, item.size, Math.max(1, item.quantity - 1));
                           }}
                           className="p-1 border border-neutral-200 hover:bg-neutral-50 rounded-none transition-colors"
                         >
@@ -415,36 +434,34 @@ export default function CartSidebar({ isOpen, onClose, customerName, products, d
                           inputMode="numeric"
                           pattern="[0-9]*"
                           value={
-                            tempQuantities[`${item.productCode}-${item.color}`] !== undefined 
-                              ? tempQuantities[`${item.productCode}-${item.color}`] 
+                            tempQuantities[tempKey] !== undefined 
+                              ? tempQuantities[tempKey] 
                               : (item.quantity === 0 ? '' : String(item.quantity))
                           }
                           onChange={(e) => {
                             const val = e.target.value.replace(/[^0-9]/g, '');
-                            const itemKey = `${item.productCode}-${item.color}`;
-                            setTempQuantities(prev => ({ ...prev, [itemKey]: val }));
+                            setTempQuantities(prev => ({ ...prev, [tempKey]: val }));
                             
                             if (val !== '') {
                               const parsed = parseInt(val, 10);
                               if (parsed > 0) {
-                                updateQuantity(item.productCode, item.color, parsed);
+                                updateQuantity(item.productCode, item.color, item.size, parsed);
                               }
                             }
                           }}
                           onBlur={() => {
-                            const itemKey = `${item.productCode}-${item.color}`;
-                            const localVal = tempQuantities[itemKey];
+                            const localVal = tempQuantities[tempKey];
                             if (localVal !== undefined) {
                               const parsed = parseInt(localVal, 10);
                               if (isNaN(parsed) || parsed <= 0) {
-                                updateQuantity(item.productCode, item.color, 1);
+                                updateQuantity(item.productCode, item.color, item.size, 1);
                               }
                             } else if (item.quantity <= 0) {
-                              updateQuantity(item.productCode, item.color, 1);
+                              updateQuantity(item.productCode, item.color, item.size, 1);
                             }
                             setTempQuantities(prev => {
                               const copy = { ...prev };
-                              delete copy[itemKey];
+                              delete copy[tempKey];
                               return copy;
                             });
                           }}
@@ -453,13 +470,12 @@ export default function CartSidebar({ isOpen, onClose, customerName, products, d
                         <button 
                           type="button"
                           onClick={() => {
-                            const itemKey = `${item.productCode}-${item.color}`;
                             setTempQuantities(prev => {
                               const copy = { ...prev };
-                              delete copy[itemKey];
+                              delete copy[tempKey];
                               return copy;
                             });
-                            updateQuantity(item.productCode, item.color, item.quantity === 0 ? 1 : item.quantity + 1);
+                            updateQuantity(item.productCode, item.color, item.size, item.quantity === 0 ? 1 : item.quantity + 1);
                           }}
                           className="p-1 border border-neutral-200 hover:bg-neutral-50 rounded-none transition-colors"
                         >
@@ -471,7 +487,7 @@ export default function CartSidebar({ isOpen, onClose, customerName, products, d
                     {/* Trash & Item Prices */}
                     <div className="flex flex-col items-end shrink-0 select-none justify-between h-full min-h-[90px]">
                       <button 
-                        onClick={() => removeFromCart(item.productCode, item.color)}
+                        onClick={() => removeFromCart(item.productCode, item.color, item.size)}
                         className="text-neutral-300 hover:text-red-500 transition-colors p-1"
                         title="삭제"
                       >
@@ -521,7 +537,7 @@ export default function CartSidebar({ isOpen, onClose, customerName, products, d
                       if (checkedCartItems.length === cartItems.length) {
                         const next: Record<string, boolean> = {};
                         cartItems.forEach(i => {
-                          next[`${i.productCode}_${i.color}`] = false;
+                          next[cartLineKey(i.productCode, i.color, i.size)] = false;
                         });
                         setCheckedItems(next);
                       } else {

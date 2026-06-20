@@ -7,7 +7,7 @@ import { clearAdminAuthCache, hasFreshAdminAuthCache, markAdminAuthenticated, pr
 import { CartSnapshotItem, Customer, CustomerOrder, Product } from '@/lib/db';
 
 type AnalysisMode = 'sales' | 'cart';
-type GroupMode = 'product' | 'color' | 'customer' | 'week';
+type GroupMode = 'product' | 'color' | 'size' | 'customer' | 'week';
 
 type AnalysisRecord = {
   source: AnalysisMode;
@@ -15,6 +15,7 @@ type AnalysisRecord = {
   customerName: string;
   productCode: string;
   color: string;
+  size: string;
   quantity: number;
   amount: number;
   week: string;
@@ -31,6 +32,7 @@ type GroupedRow = {
   productCode: string;
   productName: string;
   color: string;
+  size: string;
   week: string;
   season: string;
   item: string;
@@ -250,6 +252,7 @@ export default function AdminAnalysisPage() {
           customerName: order.거래처명 || '',
           productCode: order.상품코드 || '',
           color: order.컬러 || '',
+          size: order.사이즈 || '',
           quantity,
           amount,
           week: product?.주차 || '',
@@ -270,6 +273,7 @@ export default function AdminAnalysisPage() {
         customerName: snapshot.customerName || '',
         productCode: snapshot.productCode || '',
         color: snapshot.color || '',
+        size: snapshot.size || '',
         quantity,
         amount: resolveProductPrice(product) * quantity,
         week: product?.주차 || '',
@@ -310,6 +314,7 @@ export default function AdminAnalysisPage() {
           record.productCode,
           record.productName,
           record.color,
+          record.size,
           record.item,
           record.week,
           record.season,
@@ -327,10 +332,12 @@ export default function AdminAnalysisPage() {
       customers: Set<string>;
       products: Set<string>;
       colors: Set<string>;
+      sizes: Set<string>;
     }>();
 
     const getGroup = (record: AnalysisRecord) => {
       if (groupMode === 'color') return `${record.productCode} / ${record.color || '미지정'}`;
+      if (groupMode === 'size') return `${record.productCode} / ${record.size || '미지정'}`;
       if (groupMode === 'customer') return record.customerName || '거래처 미지정';
       if (groupMode === 'week') return record.week || '주차 미지정';
       return record.productCode || record.productName || '상품 미지정';
@@ -346,6 +353,7 @@ export default function AdminAnalysisPage() {
             productCode: record.productCode,
             productName: record.productName,
             color: groupMode === 'color' ? record.color : '',
+            size: groupMode === 'size' ? record.size : '',
             week: record.week,
             season: record.season,
             item: record.item,
@@ -360,6 +368,7 @@ export default function AdminAnalysisPage() {
           customers: new Set(),
           products: new Set(),
           colors: new Set(),
+          sizes: new Set(),
         });
       }
 
@@ -370,6 +379,7 @@ export default function AdminAnalysisPage() {
       if (record.customerName) entry.customers.add(record.customerName);
       if (record.productCode) entry.products.add(record.productCode);
       if (record.color) entry.colors.add(record.color);
+      if (record.size) entry.sizes.add(record.size);
       entry.row.customerCount = entry.customers.size;
       entry.row.productCount = entry.products.size;
       entry.row.colorCount = entry.colors.size;
@@ -558,6 +568,7 @@ export default function AdminAnalysisPage() {
               {[
                 ['product', '상품별'],
                 ['color', '컬러별'],
+                ['size', '사이즈별'],
                 ['customer', '판매처별'],
                 ['week', '주차별'],
               ].map(([mode, label]) => (
@@ -579,7 +590,7 @@ export default function AdminAnalysisPage() {
                 <input
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
-                  placeholder="거래처, 상품, 컬러, 아이템 검색..."
+                  placeholder="거래처, 상품, 컬러, 사이즈, 아이템 검색..."
                   className="w-full border border-neutral-200 pl-9 pr-3 py-2 text-xs font-mono focus:outline-none focus:border-black"
                 />
               </div>

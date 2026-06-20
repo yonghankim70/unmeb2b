@@ -60,6 +60,7 @@ type OrderPayloadRow = PayloadRow & {
   customer_name?: string;
   product_code?: string;
   color?: string;
+  size?: string;
   quantity?: number;
   amount?: number;
   order_at?: string;
@@ -83,9 +84,9 @@ const PRODUCT_INSERT_COLUMNS = [
 ] as const;
 
 const CUSTOMER_INSERT_COLUMNS = ['name', 'grade', 'owner_cart_allowed', 'login_blocked', 'payload', 'updated_at'] as const;
-const ORDER_INSERT_COLUMNS = ['id', 'customer_name', 'product_code', 'color', 'quantity', 'amount', 'order_at', 'payload', 'updated_at'] as const;
+const ORDER_INSERT_COLUMNS = ['id', 'customer_name', 'product_code', 'color', 'size', 'quantity', 'amount', 'order_at', 'payload', 'updated_at'] as const;
 const PAYMENT_INSERT_COLUMNS = ['id', 'customer_name', 'payment_at', 'amount', 'payload', 'updated_at'] as const;
-const CART_INSERT_COLUMNS = ['customerName', 'productCode', 'color', 'quantity', 'category', 'updatedAt'] as const;
+const CART_INSERT_COLUMNS = ['customerName', 'productCode', 'color', 'size', 'quantity', 'category', 'updatedAt'] as const;
 const MAX_D1_SQL_VARIABLES_PER_STATEMENT = 90;
 const MAX_D1_SQL_VARIABLES_PER_BATCH = 360;
 const MAX_D1_STATEMENTS_PER_BATCH = 8;
@@ -192,6 +193,7 @@ function orderKeyParts(order: CustomerOrder): string[] {
     order.거래처명 || '',
     order.상품코드 || '',
     order.컬러 || '',
+    order.사이즈 || '',
   ].map((value) => String(value).trim());
 }
 
@@ -210,6 +212,7 @@ function normalizeOrder(order: CustomerOrder, row?: OrderPayloadRow): CustomerOr
     거래처명: order.거래처명 || row?.customer_name || '',
     상품코드: order.상품코드 || row?.product_code || '',
     컬러: order.컬러 || row?.color || '',
+    사이즈: order.사이즈 || row?.size || '',
     수량: Number(order.수량 || row?.quantity || 0),
     금액: order.금액 === undefined ? Number(row?.amount || 0) : Number(order.금액 || 0),
   };
@@ -308,6 +311,7 @@ async function runEnsureCloudSchema(): Promise<void> {
         customer_name TEXT,
         product_code TEXT,
         color TEXT,
+        size TEXT,
         quantity INTEGER,
         amount REAL,
         order_at TEXT,
@@ -364,7 +368,29 @@ async function runEnsureCloudSchema(): Promise<void> {
         PRIMARY KEY (customerName, productCode, color)
       )`,
     },
+    {
+      sql: `CREATE TABLE IF NOT EXISTS cart_snapshots_v2 (
+        customerName TEXT,
+        productCode TEXT,
+        color TEXT,
+        size TEXT,
+        quantity INTEGER,
+        category TEXT,
+        updatedAt TEXT,
+        PRIMARY KEY (customerName, productCode, color, size)
+      )`,
+    },
   ]);
+
+  const orderColumns = await queryD1<{ name?: string }>('PRAGMA table_info(orders)');
+  if (!orderColumns.some((column) => String(column.name || '').toLowerCase() === 'size')) {
+    await queryD1('ALTER TABLE orders ADD COLUMN size TEXT');
+  }
+
+  await queryD1(`
+    INSERT OR IGNORE INTO cart_snapshots_v2 (customerName, productCode, color, size, quantity, category, updatedAt)
+    SELECT customerName, productCode, color, '', quantity, category, updatedAt FROM cart_snapshots
+  `);
 }
 
 export async function ensureCloudSchema(): Promise<void> {
@@ -517,7 +543,7 @@ export async function deleteCloudCustomers(customerNames: string[]): Promise<voi
 export async function readCloudOrders(): Promise<CustomerOrder[]> {
   await ensureCloudSchema();
   const rows = await queryD1<OrderPayloadRow>(
-    'SELECT customer_name, product_code, color, quantity, amount, order_at, payload FROM orders ORDER BY order_at ASC, id ASC'
+    'SELECT customer_name, product_code, color, size, quantity, amount, order_at, payload FROM orders ORDER BY order_at ASC, id ASC'
   );
   return rows
     .map((row) => normalizeOrder(parsePayload<CustomerOrder>(row, {} as CustomerOrder), row))
@@ -535,13 +561,13 @@ export async function writeCloudOrders(orders: CustomerOrder[], replaceAll = fal
   } else {
     const touchedKeys = new Set<string>();
     orders.forEach((order) => {
-      const [orderAt, customerNameValue, productCode, color] = orderKeyParts(order);
-      const key = [orderAt, customerNameValue, productCode, color].join('|');
+      const [orderAt, customerNameValue, productCode, color, size] = orderKeyParts(order);
+      const key = [orderAt, customerNameValue, productCode, color, size].join('|');
       if (!orderAt || !customerNameValue || !productCode || touchedKeys.has(key)) return;
       touchedKeys.add(key);
       queries.push({
-        sql: 'DELETE FROM orders WHERE order_at = ? AND customer_name = ? AND product_code = ? AND color = ?',
-        params: [orderAt, customerNameValue, productCode, color],
+        sql: 'DELETE FROM orders WHERE order_at = ? AND customer_name = ? AND product_code = ? AND color = ? AND COALESCE(size, ?) = ?',
+        params: [orderAt, customerNameValue, productCode, color, size, size],
       });
     });
   }
@@ -553,6 +579,7 @@ export async function writeCloudOrders(orders: CustomerOrder[], replaceAll = fal
         order.거래처명 || '',
         order.상품코드 || '',
         order.컬러 || '',
+        order.사이즈 || '',
         Number(order.수량 || 0),
         Number(order.금액 || 0),
         order.주문일시 || '',
@@ -575,11 +602,11 @@ export async function deleteCloudOrdersByKeys(orderKeys: string[]): Promise<void
   await ensureCloudSchema();
   const keys = uniqueNonEmpty(orderKeys);
   const queries = keys.reduce<D1WriteQuery[]>((acc, key) => {
-    const [orderAt, customerNameValue, productCode, color] = key.split('|');
+    const [orderAt, customerNameValue, productCode, color, size = ''] = key.split('|');
     if (!orderAt || !customerNameValue || !productCode) return acc;
     acc.push({
-      sql: 'DELETE FROM orders WHERE order_at = ? AND customer_name = ? AND product_code = ? AND color = ?',
-      params: [orderAt, customerNameValue, productCode, color || ''],
+      sql: 'DELETE FROM orders WHERE order_at = ? AND customer_name = ? AND product_code = ? AND color = ? AND COALESCE(size, ?) = ?',
+      params: [orderAt, customerNameValue, productCode, color || '', size, size],
     });
     return acc;
   }, []);
@@ -667,26 +694,27 @@ export async function deleteCloudPayment(paymentIdValue: string): Promise<void> 
 
 export async function readCloudCartSnapshots(): Promise<CartSnapshotItem[]> {
   await ensureCloudSchema();
-  return queryD1<CartSnapshotItem>('SELECT customerName, productCode, color, quantity, category, updatedAt FROM cart_snapshots ORDER BY updatedAt DESC');
+  return queryD1<CartSnapshotItem>('SELECT customerName, productCode, color, size, quantity, category, updatedAt FROM cart_snapshots_v2 ORDER BY updatedAt DESC');
 }
 
 export async function writeCloudCartSnapshot(customerName: string, items: Omit<CartSnapshotItem, 'customerName' | 'updatedAt'>[]): Promise<void> {
   await ensureCloudSchema();
   const trimmedCustomerName = customerName.trim();
   const updatedAt = new Date().toISOString();
-  const queries: D1WriteQuery[] = [{ sql: 'DELETE FROM cart_snapshots WHERE customerName = ?', params: [trimmedCustomerName] }];
+  const queries: D1WriteQuery[] = [{ sql: 'DELETE FROM cart_snapshots_v2 WHERE customerName = ?', params: [trimmedCustomerName] }];
   const rows = items.reduce<unknown[][]>((acc, item) => {
     const productCode = String(item.productCode || '').trim();
     const color = String(item.color || '').trim();
+    const size = String(item.size || '').trim();
     const quantity = Number(item.quantity || 0);
     if (!trimmedCustomerName || !productCode || quantity <= 0) return acc;
-    acc.push([trimmedCustomerName, productCode, color, Math.trunc(quantity), item.category || '', updatedAt]);
+    acc.push([trimmedCustomerName, productCode, color, size, Math.trunc(quantity), item.category || '', updatedAt]);
     return acc;
   }, []);
 
   for (const chunk of chunkRowsForInsert(rows, CART_INSERT_COLUMNS.length)) {
     queries.push({
-      sql: `INSERT OR REPLACE INTO cart_snapshots (${CART_INSERT_COLUMNS.join(', ')}) VALUES ${valuesPlaceholders(chunk.length, CART_INSERT_COLUMNS.length)}`,
+      sql: `INSERT OR REPLACE INTO cart_snapshots_v2 (${CART_INSERT_COLUMNS.join(', ')}) VALUES ${valuesPlaceholders(chunk.length, CART_INSERT_COLUMNS.length)}`,
       params: chunk.flat(),
     });
   }
@@ -694,15 +722,16 @@ export async function writeCloudCartSnapshot(customerName: string, items: Omit<C
   await runWriteBatch(queries);
 }
 
-export async function clearCloudOrderedCartSnapshotItems(customerName: string, items: Array<{ productCode: string; color: string }>): Promise<void> {
+export async function clearCloudOrderedCartSnapshotItems(customerName: string, items: Array<{ productCode: string; color: string; size?: string }>): Promise<void> {
   await ensureCloudSchema();
   const trimmedCustomerName = customerName.trim();
   const queries = items.map((item) => ({
-    sql: 'DELETE FROM cart_snapshots WHERE customerName = ? AND productCode = ? AND color = ?',
+    sql: 'DELETE FROM cart_snapshots_v2 WHERE customerName = ? AND productCode = ? AND color = ? AND size = ?',
     params: [
       trimmedCustomerName,
       item.productCode,
       item.color,
+      item.size || '',
     ],
   }));
   await runWriteBatch(queries);

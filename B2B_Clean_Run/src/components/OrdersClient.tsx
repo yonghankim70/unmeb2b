@@ -46,7 +46,7 @@ export default function OrdersClient({ orders, session, products }: OrdersClient
   const totalAmount = displayedOrders.reduce((sum, order) => sum + (Number(order.금액) || 0), 0);
   const totalItems = displayedOrders.reduce((sum, order) => sum + (Number(order.수량) || 0), 0);
 
-  const getOrderKey = (order: CustomerOrder) => `${order.주문일시}_${order.상품코드}_${order.컬러}`;
+  const getOrderKey = (order: CustomerOrder) => `${order.주문일시}_${order.상품코드}_${order.컬러}_${order.사이즈 || ''}`;
 
   const getStatusBadge = (status?: string) => {
     const value = String(status || '').trim();
@@ -91,6 +91,7 @@ export default function OrdersClient({ orders, session, products }: OrdersClient
     addToCart({
       productCode: order.상품코드,
       color: order.컬러,
+      size: order.사이즈 || '',
       quantity: Number(order.수량) || 1,
       category: ''
     });
@@ -223,6 +224,7 @@ export default function OrdersClient({ orders, session, products }: OrdersClient
                     <th className="py-3 px-4 text-left font-semibold">주문일시</th>
                     <th className="py-3 px-4 text-left font-semibold">상품</th>
                     <th className="py-3 px-4 text-center font-semibold">컬러</th>
+                    <th className="py-3 px-4 text-center font-semibold">사이즈</th>
                     <th className="py-3 px-4 text-right font-semibold">수량</th>
                     <th className="py-3 px-4 text-right font-semibold">금액</th>
                     <th className="py-3 px-4 text-center font-semibold">상태</th>
@@ -246,6 +248,7 @@ export default function OrdersClient({ orders, session, products }: OrdersClient
                           )}
                         </td>
                         <td className="py-4 px-4 text-center text-neutral-700">{order.컬러 || '-'}</td>
+                        <td className="py-4 px-4 text-center text-neutral-700 font-mono">{order.사이즈 || '-'}</td>
                         <td className="py-4 px-4 text-right font-mono">{Number(order.수량 || 0).toLocaleString('ko-KR')}</td>
                         <td className="py-4 px-4 text-right font-mono font-semibold">{Number(order.금액 || 0).toLocaleString('ko-KR')}원</td>
                         <td className="py-4 px-4 text-center">{getStatusBadge(order.출고상황 || order.주문확인)}</td>

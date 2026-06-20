@@ -16,7 +16,14 @@ function getOrderKey(order: CustomerOrder): string {
     order.거래처명 || '',
     order.상품코드 || '',
     order.컬러 || '',
+    order.사이즈 || '',
   ].map((value) => String(value).trim()).join('|');
+}
+
+function orderOptionLabel(order: CustomerOrder): string {
+  const color = String(order.컬러 || '').trim();
+  const size = String(order.사이즈 || '').trim();
+  return size ? `${color}/${size}` : color;
 }
 
 function uniqueKeys(keys: string[]): string[] {
@@ -46,7 +53,7 @@ export default function AdminOrdersPage() {
   const [completionFilter, setCompletionFilter] = useState('n'); // n: 진행중, y: 종결, ALL: 전체
 
 
-  // 선택된 주문 키 상태 (주문일시|거래처명|상품코드|컬러 포맷)
+  // 선택된 주문 키 상태 (주문일시|거래처명|상품코드|컬러|사이즈 포맷)
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [deletedOrderKeys, setDeletedOrderKeys] = useState<string[]>([]);
   // 선택 삭제 확인 대화상자 상태
@@ -77,7 +84,7 @@ export default function AdminOrdersPage() {
     sender: string;
     bankAmount: number;
     orderAmount: number;
-    orderKeys: string[]; // matching identifier keys (timestamp + productCode + color)
+    orderKeys: string[]; // matching identifier keys (timestamp + productCode + color + size)
   } | null>(null);
 
   // Bank accounts config options
@@ -618,10 +625,10 @@ export default function AdminOrdersPage() {
         text += "요청사항: " + data.memo + "\\n";
       }
       text += "----------------------------------\\n";
-      text += "품명 (컬러) | 수량 | 단가 | 금액\\n";
+      text += "품명 (컬러/사이즈) | 수량 | 단가 | 금액\\n";
       text += "----------------------------------\\n";
       data.items.forEach(function(item) {
-        text += item.code + " (" + item.color + ") | " + item.qty + " | " + item.price.toLocaleString() + " | " + item.amount.toLocaleString() + "\\n";
+        text += item.code + " (" + item.option + ") | " + item.qty + " | " + item.price.toLocaleString() + " | " + item.amount.toLocaleString() + "\\n";
       });
       text += "----------------------------------\\n";
       text += "총 수량: " + data.totalQty.toLocaleString() + " 개\\n";
@@ -724,6 +731,8 @@ export default function AdminOrdersPage() {
         items: items.map(item => ({
           code: item.상품코드,
           color: item.컬러,
+          size: item.사이즈 || '',
+          option: orderOptionLabel(item),
           qty: item.수량,
           price: item.단가 || 0,
           amount: item.금액 || 0
@@ -785,7 +794,7 @@ export default function AdminOrdersPage() {
       <tr>
         <th style="width: 5%;">No</th>
         <th style="width: 30%;">상품코드 (품번)</th>
-        <th style="width: 15%;">규격 (컬러)</th>
+        <th style="width: 15%;">규격 (컬러/사이즈)</th>
         <th style="width: 10%;" class="text-center">수량</th>
         <th style="width: 15%;" class="text-right">단가</th>
         <th style="width: 15%;" class="text-right">금액</th>
@@ -797,7 +806,7 @@ export default function AdminOrdersPage() {
       <tr>
         <td class="text-center">${idx + 1}</td>
         <td class="font-bold">${item.상품코드}</td>
-        <td class="text-center">${item.컬러}</td>
+        <td class="text-center">${orderOptionLabel(item)}</td>
         <td class="text-center font-bold">${item.수량}</td>
         <td class="text-right">${(item.단가 || 0).toLocaleString()}</td>
         <td class="text-right">${(item.금액 || 0).toLocaleString()}</td>
@@ -1210,6 +1219,7 @@ export default function AdminOrdersPage() {
       (o.주문번호 || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (o.거래처명 || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (o.상품코드 || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (o.사이즈 || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (o.입금자 || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (o.운송장번호 || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (o.요청사항 || '').toLowerCase().includes(searchTerm.toLowerCase());
@@ -1417,7 +1427,7 @@ export default function AdminOrdersPage() {
               <Search className="absolute left-3 top-2.5 w-4 h-4 text-neutral-400" />
               <input 
                 type="text" 
-                placeholder="거래처명, 상품코드, 입금자명, 운송장번호 검색..."
+                placeholder="거래처명, 상품코드, 사이즈, 입금자명, 운송장번호 검색..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 border border-neutral-200 bg-white focus:outline-none focus:border-black text-xs font-mono rounded-none"
@@ -1480,7 +1490,7 @@ export default function AdminOrdersPage() {
           </div>
         ) : (
           <div className="border border-neutral-200 overflow-x-auto shadow-sm">
-            <table className="w-full border-collapse text-left text-xs font-mono min-w-[2450px]">
+            <table className="w-full border-collapse text-left text-xs font-mono min-w-[2550px]">
               <thead>
                 <tr className="bg-neutral-50 border-b border-neutral-200 text-[10px] text-neutral-500 tracking-wider select-none uppercase">
                   <th className="py-3 px-3 border-r border-neutral-200 w-12 text-center select-none">
@@ -1497,6 +1507,7 @@ export default function AdminOrdersPage() {
                   <th className="py-3 px-3 border-r border-neutral-200 w-36">거래처명</th>
                   <th className="py-3 px-3 border-r border-neutral-200 w-36">상품코드 (품번)</th>
                   <th className="py-3 px-3 border-r border-neutral-200 w-24">컬러</th>
+                  <th className="py-3 px-3 border-r border-neutral-200 w-20 text-center">사이즈</th>
                   <th className="py-3 px-3 border-r border-neutral-200 w-16 text-center">수량</th>
                   <th className="py-3 px-3 border-r border-neutral-200 w-28 text-right">도매단가</th>
                   <th className="py-3 px-3 border-r border-neutral-200 w-28 text-right">총 주문금액</th>
@@ -1517,7 +1528,7 @@ export default function AdminOrdersPage() {
               <tbody className="divide-y divide-neutral-200">
                 {filteredOrders.length === 0 ? (
                   <tr>
-                    <td colSpan={20} className="py-16 text-center text-neutral-400 font-light italic bg-white text-xs">
+                    <td colSpan={23} className="py-16 text-center text-neutral-400 font-light italic bg-white text-xs">
                       조건에 만족하는 주문 접수 내역이 없습니다.
                     </td>
                   </tr>
@@ -1583,6 +1594,13 @@ export default function AdminOrdersPage() {
                         <td className="py-2.5 px-3 border-r border-neutral-200">
                           <span className="bg-neutral-100 text-neutral-800 px-2 py-0.5 rounded-[2px] font-medium border border-neutral-200/40">
                             {order.컬러}
+                          </span>
+                        </td>
+
+                        {/* 4-2. 사이즈 */}
+                        <td className="py-2.5 px-3 border-r border-neutral-200 text-center">
+                          <span className="bg-neutral-50 text-neutral-700 px-2 py-0.5 rounded-[2px] font-semibold border border-neutral-200/60">
+                            {order.사이즈 || '-'}
                           </span>
                         </td>
 

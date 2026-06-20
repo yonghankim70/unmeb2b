@@ -73,6 +73,7 @@ export interface CategoryMaster {
 export interface OrderItem {
   productCode: string; // matches 상품명 or 임시코드
   color: string;
+  size?: string;
   quantity: number;
 }
 
@@ -80,6 +81,7 @@ export interface CartSnapshotItem {
   customerName: string;
   productCode: string;
   color: string;
+  size?: string;
   quantity: number;
   category?: string;
   updatedAt: string;
@@ -1003,6 +1005,7 @@ export interface CustomerOrder {
   거래처명: string;
   상품코드: string;
   컬러: string;
+  사이즈?: string;
   수량: number;
   단가?: number;
   금액?: number;

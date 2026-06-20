@@ -324,6 +324,7 @@ export default function DashboardClient({ products, session, globalSettings }: D
     addToCart({
       productCode: product.상품명, // Use the official 상품명 in order logs
       color: selectedColor,
+      size: '',
       quantity: qty,
       category: product.카테고리,
     });
@@ -338,10 +339,11 @@ export default function DashboardClient({ products, session, globalSettings }: D
     }, 1500);
   };
 
-  const handleAddToCartFromModal = (product: Product, color: string, qty: number) => {
+  const handleAddToCartFromModal = (product: Product, color: string, size: string, qty: number) => {
     addToCart({
       productCode: product.상품명, // Use the official 상품명 in order logs
       color,
+      size,
       quantity: qty,
       category: product.카테고리,
     });

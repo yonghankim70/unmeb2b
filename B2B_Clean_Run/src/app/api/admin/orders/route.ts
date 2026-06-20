@@ -13,7 +13,14 @@ function orderKey(order: any): string {
     order.거래처명 || '',
     order.상품코드 || '',
     order.컬러 || '',
+    order.사이즈 || '',
   ].map((value) => String(value).trim()).join('|');
+}
+
+function orderOptionLabel(order: any): string {
+  const color = String(order.컬러 || '').trim();
+  const size = String(order.사이즈 || '').trim();
+  return size ? `${color}/${size}` : color;
 }
 
 function uniqueOrderKeys(values: unknown): string[] {
@@ -178,7 +185,7 @@ export async function POST(request: NextRequest) {
         if (!chatId) continue;
 
         const orderNo = items[0].주문번호 || '미발급';
-        const itemDetails = items.map(item => `• ${item.상품코드} (${item.컬러}) / ${item.수량}개`).join('\n');
+        const itemDetails = items.map(item => `• ${item.상품코드} (${orderOptionLabel(item)}) / ${item.수량}개`).join('\n');
 
         const message = `<b>[U&ME B2B 주문 확인 안내]</b>\n\n` +
                         `안녕하세요, <b>${custName}</b> 파트너님.\n` +
@@ -197,7 +204,7 @@ export async function POST(request: NextRequest) {
         if (!chatId) continue;
 
         const orderNo = items[0].주문번호 || '미발급';
-        const itemDetails = items.map(item => `• ${item.상품코드} (${item.컬러}) / ${item.수량}개`).join('\n');
+        const itemDetails = items.map(item => `• ${item.상품코드} (${orderOptionLabel(item)}) / ${item.수량}개`).join('\n');
 
         const message = `<b>[U&ME B2B 오더 진행 안내]</b>\n\n` +
                         `안녕하세요, <b>${custName}</b> 파트너님.\n` +

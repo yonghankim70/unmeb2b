@@ -12,6 +12,7 @@ import {
 interface SubmittedOrderItem {
   productCode: string;
   color: string;
+  size?: string;
   quantity: number;
 }
 
@@ -26,11 +27,13 @@ function normalizeOrderItems(items: unknown): SubmittedOrderItem[] | null {
     const raw = item as {
       productCode?: unknown;
       color?: unknown;
+      size?: unknown;
       quantity?: unknown;
     };
 
     const productCode = String(raw.productCode || '').trim();
     const color = String(raw.color || '').trim();
+    const size = String(raw.size || '').trim();
     const quantity = Number(raw.quantity);
 
     if (!productCode || !Number.isFinite(quantity) || quantity <= 0) {
@@ -40,6 +43,7 @@ function normalizeOrderItems(items: unknown): SubmittedOrderItem[] | null {
     return {
       productCode,
       color,
+      size,
       quantity: Math.trunc(quantity),
     };
   });
@@ -105,6 +109,7 @@ function buildOrderRows(
       거래처명: customerName,
       상품코드: item.productCode,
       컬러: item.color,
+      사이즈: item.size || '',
       수량: item.quantity,
       단가: unitPrice,
       금액: unitPrice * item.quantity,
@@ -190,7 +195,8 @@ export async function POST(request: NextRequest) {
       notifyText += `• **주문 목록:**\n`;
       
       orderItems.forEach((item, idx) => {
-        notifyText += `  ${idx + 1}. 품번: \`${item.productCode}\` / 컬러: \`${item.color}\` / 수량: \`${item.quantity}개\`\n`;
+        const sizeText = item.size ? ` / 사이즈: \`${item.size}\`` : '';
+        notifyText += `  ${idx + 1}. 품번: \`${item.productCode}\` / 컬러: \`${item.color}\`${sizeText} / 수량: \`${item.quantity}개\`\n`;
       });
       
       notifyText += `\n* 운영 서버 주문 데이터베이스에 자동 저장되었습니다.`;
@@ -229,7 +235,8 @@ export async function POST(request: NextRequest) {
       orderItems.forEach((item, idx) => {
         const productCode = escapeTelegramHtml(item.productCode);
         const color = escapeTelegramHtml(item.color);
-        telegramText += `${idx + 1}. 품번: <code>${productCode}</code> / 컬러: <code>${color}</code> / 수량: <code>${item.quantity}개</code>\n`;
+        const sizeText = item.size ? ` / 사이즈: <code>${escapeTelegramHtml(item.size)}</code>` : '';
+        telegramText += `${idx + 1}. 품번: <code>${productCode}</code> / 컬러: <code>${color}</code>${sizeText} / 수량: <code>${item.quantity}개</code>\n`;
       });
       telegramText += `\n* 운영 서버 주문 데이터베이스에 자동 저장되었습니다.`;
 

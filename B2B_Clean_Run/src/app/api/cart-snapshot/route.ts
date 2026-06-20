@@ -9,6 +9,7 @@ export const dynamic = 'force-dynamic';
 type IncomingCartItem = {
   productCode?: unknown;
   color?: unknown;
+  size?: unknown;
   quantity?: unknown;
   category?: unknown;
 };
@@ -25,6 +26,7 @@ export async function POST(request: NextRequest) {
     const items = rawItems.map(item => ({
       productCode: String(item.productCode || '').trim(),
       color: String(item.color || '').trim(),
+      size: String(item.size || '').trim(),
       quantity: Number(item.quantity) || 0,
       category: String(item.category || '').trim(),
     })).filter(item => item.productCode && item.quantity > 0);

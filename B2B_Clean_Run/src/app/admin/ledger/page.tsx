@@ -446,7 +446,7 @@ export default function AdminLedgerPage() {
         date: datePart || '날짜미상',
         rawDate: o.주문일시 || '',
         type: '주문',
-        reference: `주문서: ${o.주문번호 || '미발급'} (${o.상품코드}/${o.컬러}/${o.수량}개)`,
+        reference: `주문서: ${o.주문번호 || '미발급'} (${o.상품코드}/${o.컬러}${o.사이즈 ? `/${o.사이즈}` : ''}/${o.수량}개)`,
         orderAmount: o.금액 || 0,
         shippedAmount: 0,
         depositAmount: 0
@@ -479,7 +479,7 @@ export default function AdminLedgerPage() {
       const vat = Math.round(supplySum * 0.1);
       const totalShipped = supplySum + vat;
 
-      const details = items.map(o => `${o.상품코드}(${o.수량}개)`).join(', ');
+      const details = items.map(o => `${o.상품코드}${o.사이즈 ? `/${o.사이즈}` : ''}(${o.수량}개)`).join(', ');
 
       ledgerItems.push({
         date,
@@ -504,7 +504,7 @@ export default function AdminLedgerPage() {
         date,
         rawDate,
         type: '발송',
-        reference: `출고(전표무): ${o.상품코드}/${o.컬러}/${o.수량}개 [공급가:${supply.toLocaleString()} 부가세:${vat.toLocaleString()}]`,
+        reference: `출고(전표무): ${o.상품코드}/${o.컬러}${o.사이즈 ? `/${o.사이즈}` : ''}/${o.수량}개 [공급가:${supply.toLocaleString()} 부가세:${vat.toLocaleString()}]`,
         orderAmount: 0,
         shippedAmount: totalShipped,
         depositAmount: 0
