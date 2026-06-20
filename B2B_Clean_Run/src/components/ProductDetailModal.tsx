@@ -7,14 +7,14 @@ import {
   getEncodedOptimizedDetailImageUrl,
   getLegacyDetailImageUrl,
   getOptimizedDetailImageSrcSet,
-  useImageFallbacks
+  useImageFallbacks as applyImageFallbacks
 } from '@/lib/imageUrls';
 import { X, Check, Plus, Loader2 } from 'lucide-react';
 
 const PRODUCT_DETAILS_CACHE_TTL_MS = 5 * 60 * 1000;
 const INSTANT_MAIN_IMAGE = 'folder.jpg';
-const DETAIL_PRELOAD_COUNT = 3;
-const OPTIMIZED_DETAIL_IMAGE_COUNT = 4;
+const DETAIL_PRELOAD_COUNT = 8;
+const OPTIMIZED_DETAIL_IMAGE_COUNT = 12;
 
 interface ProductDetailModalProps {
   isOpen: boolean;
@@ -79,14 +79,14 @@ function getCachedImages(product: Product): string[] | null {
 function preloadDetailImages(product: Product, images: string[]): void {
   if (typeof window === 'undefined') return;
 
-  images.slice(0, DETAIL_PRELOAD_COUNT).forEach((imageName) => {
+  images.slice(0, DETAIL_PRELOAD_COUNT).forEach((imageName, index) => {
     if (imageName.toLowerCase().endsWith('.mp4') || imageName.toLowerCase().endsWith('.webm')) return;
 
     const image = new Image();
     image.decoding = 'async';
     image.sizes = '(max-width: 768px) 100vw, 65vw';
     image.srcset = getOptimizedDetailImageSrcSet(product, imageName);
-    (image as HTMLImageElement & { fetchPriority?: string }).fetchPriority = 'high';
+    (image as HTMLImageElement & { fetchPriority?: string }).fetchPriority = index < 3 ? 'high' : 'low';
     image.onerror = () => {
       image.src = getImageUrl(product, imageName);
     };
@@ -214,6 +214,19 @@ function VideoPlayer({ src }: VideoPlayerProps) {
   );
 }
 
+function parseColors(colorStr: string): string[] {
+  if (!colorStr) return [];
+  const parsed = colorStr.split(/[,/]/).map(c => {
+    const trimmed = c.trim();
+    const match = trimmed.match(/^[A-Za-z0-9#-]+\(([^)]+)\)$/);
+    if (match) return match[1].trim();
+    const innerMatch = trimmed.match(/\(([^)]+)\)/);
+    if (innerMatch) return innerMatch[1].trim();
+    return trimmed;
+  }).filter(Boolean);
+  return parsed;
+}
+
 export default function ProductDetailModal({
   isOpen,
   onClose,
@@ -224,6 +237,8 @@ export default function ProductDetailModal({
   const modalRootRef = React.useRef<HTMLDivElement>(null);
   const contentScrollRef = React.useRef<HTMLDivElement>(null);
   const detailImagePaneRef = React.useRef<HTMLDivElement>(null);
+  const pendingWheelDeltaRef = React.useRef(0);
+  const wheelFrameRef = React.useRef<number | null>(null);
   const [images, setImages] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedColor, setSelectedColor] = useState('');
@@ -238,20 +253,47 @@ export default function ProductDetailModal({
     return contentScrollRef.current || detailImagePaneRef.current;
   };
 
-  const scrollDetailImages = (deltaY: number): boolean => {
+  const scrollDetailImages = (deltaY: number, immediate = false): boolean => {
     const scrollElement = getActiveDetailScrollElement();
     if (!scrollElement) return false;
 
     const maxScrollTop = scrollElement.scrollHeight - scrollElement.clientHeight;
     if (maxScrollTop <= 0) return false;
 
-    const nextScrollTop = Math.max(0, Math.min(scrollElement.scrollTop + deltaY, maxScrollTop));
-    scrollElement.scrollTop = nextScrollTop;
+    const canScrollDown = deltaY > 0 && scrollElement.scrollTop < maxScrollTop - 1;
+    const canScrollUp = deltaY < 0 && scrollElement.scrollTop > 1;
+    if (!canScrollDown && !canScrollUp) return false;
+
+    if (immediate) {
+      const nextScrollTop = Math.max(0, Math.min(scrollElement.scrollTop + deltaY, maxScrollTop));
+      scrollElement.scrollTop = nextScrollTop;
+      return true;
+    }
+
+    pendingWheelDeltaRef.current += deltaY;
+    if (wheelFrameRef.current !== null) return true;
+
+    wheelFrameRef.current = window.requestAnimationFrame(() => {
+      const scrollTarget = getActiveDetailScrollElement();
+      const pendingDelta = pendingWheelDeltaRef.current;
+      pendingWheelDeltaRef.current = 0;
+      wheelFrameRef.current = null;
+
+      if (!scrollTarget || pendingDelta === 0) return;
+      scrollTarget.scrollBy({ top: pendingDelta, left: 0, behavior: 'auto' });
+    });
+
     return true;
   };
 
   const handleWheelCapture = (event: React.WheelEvent<HTMLDivElement>) => {
     if (Math.abs(event.deltaY) < Math.abs(event.deltaX)) return;
+
+    const target = event.target instanceof Node ? event.target : null;
+    const nativeScrollElement = getActiveDetailScrollElement();
+    if (target && nativeScrollElement?.contains(target)) {
+      return;
+    }
 
     const handled = scrollDetailImages(event.deltaY);
     if (handled) {
@@ -271,7 +313,7 @@ export default function ProductDetailModal({
     const deltaY = keyScrollMap[event.key];
     if (!deltaY) return;
 
-    const handled = scrollDetailImages(deltaY);
+    const handled = scrollDetailImages(deltaY, true);
     if (handled) {
       event.preventDefault();
       event.stopPropagation();
@@ -310,14 +352,15 @@ export default function ProductDetailModal({
     const hasImmediateDetailImages = Boolean(cachedImages && cachedImages.length > 0) || embeddedImages.length > 0;
     const instantImages = cachedImages || (embeddedImages.length > 0 ? embeddedImages : []);
 
-    setLoading(!hasImmediateDetailImages);
-    setImages(instantImages);
-    setQuantity(1);
-    setAddingSuccess(false);
+    const initializeFrame = window.requestAnimationFrame(() => {
+      if (cancelled) return;
 
-    // Parse default color
-    const colors = parseColors(product.컬러);
-    setSelectedColor(colors[0] || '');
+      setLoading(!hasImmediateDetailImages);
+      setImages(instantImages);
+      setQuantity(1);
+      setAddingSuccess(false);
+      setSelectedColor(parseColors(product.컬러)[0] || '');
+    });
 
     prefetchProductDetails(product)
       .then((loadedImages) => {
@@ -336,6 +379,17 @@ export default function ProductDetailModal({
 
     return () => {
       cancelled = true;
+      window.cancelAnimationFrame(initializeFrame);
+    };
+  }, [isOpen, product]);
+
+  useEffect(() => {
+    return () => {
+      if (wheelFrameRef.current !== null) {
+        window.cancelAnimationFrame(wheelFrameRef.current);
+        wheelFrameRef.current = null;
+      }
+      pendingWheelDeltaRef.current = 0;
     };
   }, [isOpen, product]);
 
@@ -375,19 +429,6 @@ export default function ProductDetailModal({
       setAddingSuccess(false);
     }, 1500);
   };
-
-  function parseColors(colorStr: string): string[] {
-    if (!colorStr) return [];
-    const parsed = colorStr.split(/[,/]/).map(c => {
-      const trimmed = c.trim();
-      const match = trimmed.match(/^[A-Za-z0-9#-]+\(([^)]+)\)$/);
-      if (match) return match[1].trim();
-      const innerMatch = trimmed.match(/\(([^)]+)\)/);
-      if (innerMatch) return innerMatch[1].trim();
-      return trimmed;
-    }).filter(Boolean);
-    return parsed;
-  }
 
   // Format size display
   const showSize = product.사이즈 && product.사이즈.trim().toLowerCase() !== 'free';
@@ -447,7 +488,7 @@ export default function ProductDetailModal({
                   const apiFileUrl = getImageUrl(product, imgName);
                   const ext = imgName.toLowerCase();
                   const isVideo = ext.endsWith('.mp4') || ext.endsWith('.webm');
-                  const shouldPrioritizeImage = index === 0;
+                  const shouldPrioritizeImage = index < 3;
 
                   if (isVideo) {
                     return (
@@ -462,11 +503,12 @@ export default function ProductDetailModal({
                       srcSet={shouldUseResponsiveSrcSet ? getOptimizedDetailImageSrcSet(product, imgName) : undefined}
                       sizes="(max-width: 768px) 100vw, 65vw"
                       alt=""
-                      className="w-full h-auto object-contain rounded-md shadow-sm"
-                      loading={shouldPrioritizeImage ? 'eager' : 'lazy'}
+                      className="w-full h-auto object-contain rounded-md shadow-sm select-none"
+                      loading={index < DETAIL_PRELOAD_COUNT ? 'eager' : 'lazy'}
                       fetchPriority={shouldPrioritizeImage ? 'high' : 'auto'}
                       decoding="async"
-                      onError={(event) => useImageFallbacks(event, [
+                      draggable={false}
+                      onError={(event) => applyImageFallbacks(event, [
                         getEncodedOptimizedDetailImageUrl(product, imgName),
                         getLegacyDetailImageUrl(product, imgName),
                         apiFileUrl,
