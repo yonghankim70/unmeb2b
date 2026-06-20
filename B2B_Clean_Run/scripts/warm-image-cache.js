@@ -7,8 +7,8 @@ const { spawnSync } = require('child_process');
 
 const CWD = process.cwd();
 const VALID_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
-const DEFAULT_MAIN_WIDTHS = [480, 720];
-const DEFAULT_DETAIL_WIDTHS = [1200, 1600];
+const DEFAULT_MAIN_WIDTHS = [480, 960];
+const DEFAULT_DETAIL_WIDTHS = [1200, 2200];
 
 function readEnvFile() {
   const envPath = path.join(CWD, '.env.local');
@@ -32,8 +32,8 @@ const ENV = readEnvFile();
 const MAIN_CACHE_LIMIT = Number(ENV.B2B_MAIN_IMAGE_WARM_LIMIT || process.env.B2B_MAIN_IMAGE_WARM_LIMIT || '1000');
 const DETAIL_IMAGE_WARM_COUNT = Number(ENV.B2B_DETAIL_IMAGE_WARM_COUNT || process.env.B2B_DETAIL_IMAGE_WARM_COUNT || '999');
 const WORKER_COUNT = Math.max(1, Number(ENV.B2B_IMAGE_WARM_WORKERS || process.env.B2B_IMAGE_WARM_WORKERS || '3'));
-const MAIN_QUALITY = Number(ENV.B2B_MAIN_IMAGE_QUALITY || process.env.B2B_MAIN_IMAGE_QUALITY || '88');
-const DETAIL_QUALITY = Number(ENV.B2B_DETAIL_IMAGE_QUALITY || process.env.B2B_DETAIL_IMAGE_QUALITY || '90');
+const MAIN_QUALITY = Number(ENV.B2B_MAIN_IMAGE_QUALITY || process.env.B2B_MAIN_IMAGE_QUALITY || '92');
+const DETAIL_QUALITY = Number(ENV.B2B_DETAIL_IMAGE_QUALITY || process.env.B2B_DETAIL_IMAGE_QUALITY || '92');
 const MAIN_WIDTHS = parseWidths(ENV.B2B_MAIN_IMAGE_WIDTHS || process.env.B2B_MAIN_IMAGE_WIDTHS, DEFAULT_MAIN_WIDTHS);
 const DETAIL_WIDTHS = parseWidths(ENV.B2B_DETAIL_IMAGE_WIDTHS || process.env.B2B_DETAIL_IMAGE_WIDTHS, DEFAULT_DETAIL_WIDTHS);
 const TEMP_OUTPUT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'b2b-image-cache-'));

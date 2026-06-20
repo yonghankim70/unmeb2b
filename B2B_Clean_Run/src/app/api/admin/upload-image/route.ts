@@ -13,8 +13,8 @@ const ALLOWED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.
 const CLOUD_IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 const MAX_CLOUD_UPLOAD_IMAGES = 10;
-const MAIN_WIDTHS = [480, 720] as const;
-const DETAIL_WIDTHS = [1200, 1600] as const;
+const MAIN_WIDTHS = [480, 960] as const;
+const DETAIL_WIDTHS = [1200, 2200] as const;
 const ALL_CLOUD_WIDTHS = new Set<number>([...MAIN_WIDTHS, ...DETAIL_WIDTHS]);
 
 interface UploadVariantManifestItem {
@@ -75,7 +75,7 @@ async function listCloudDetailImageNames(week: string, code: string): Promise<st
   for (const key of keys) {
     if (!key.startsWith(prefix)) continue;
     const tail = key.slice(prefix.length);
-    const match = tail.match(/^(.+)-(?:1200|1600)\.webp$/);
+    const match = tail.match(/^(.+)-(?:1200|1600|2200)\.webp$/);
     if (!match) continue;
     const fileName = safeFileName(decodeR2KeySegment(match[1]));
     if (fileName) names.add(fileName);

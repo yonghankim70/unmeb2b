@@ -92,8 +92,8 @@ const ALL_COLUMNS: ColumnMeta[] = [
   { key: '중국코드', label: '중국코드', defaultWidth: 130, isSticky: false, canHide: true },
 ];
 
-const CLOUD_DETAIL_WIDTHS = [1200, 1600] as const;
-const CLOUD_MAIN_WIDTHS = [480, 720] as const;
+const CLOUD_DETAIL_WIDTHS = [1200, 2200] as const;
+const CLOUD_MAIN_WIDTHS = [480, 960] as const;
 const MAX_CLOUD_UPLOAD_IMAGES = 10;
 const SORT_MANAGER_OWNER_CART = 'OWNER-CART';
 const SORT_MANAGER_CATEGORIES = ['ALL', 'NEW', '선기획', 'KNIT', 'TOP', 'BOTTOM', 'OUTER', 'ONE-PIECE', SORT_MANAGER_OWNER_CART] as const;
@@ -254,7 +254,7 @@ async function appendCloudWebpUploadPayload(formData: FormData, files: File[]): 
 
     for (const width of CLOUD_DETAIL_WIDTHS) {
       const field = `variant_${index}_detail_${width}`;
-      const blob = await imageFileToWebp(file, width, width === 1600 ? 0.9 : 0.88);
+      const blob = await imageFileToWebp(file, width, width === 2200 ? 0.92 : 0.9);
       formData.append(field, blob, `${file.name}-${width}.webp`);
       manifest.push({ field, fileName: file.name, kind: 'detail', width });
     }
@@ -262,7 +262,7 @@ async function appendCloudWebpUploadPayload(formData: FormData, files: File[]): 
     if (shouldUpdateMain && !updatedMain) {
       for (const width of CLOUD_MAIN_WIDTHS) {
         const field = `variant_${index}_main_${width}`;
-        const blob = await imageFileToWebp(file, width, 0.88);
+        const blob = await imageFileToWebp(file, width, width === 960 ? 0.92 : 0.88);
         formData.append(field, blob, `${file.name}-main-${width}.webp`);
         manifest.push({ field, fileName: file.name, kind: 'main', width });
       }
@@ -2557,7 +2557,7 @@ export default function AdminPage() {
       return;
     }
 
-    if (!confirm('전체 상품 이미지를 WebP로 최적화합니다.\n목록 480/720, 상세 1200/1600 기준으로 생성합니다.\n진행할까요?')) {
+    if (!confirm('전체 상품 이미지를 WebP로 최적화합니다.\n목록 480/960, 상세 1200/2200 기준으로 생성합니다.\n진행할까요?')) {
       return;
     }
 
@@ -2725,7 +2725,7 @@ export default function AdminPage() {
                 onClick={handleImageOptimize}
                 disabled={imageOptimizing || cloudSyncing}
                 className="flex items-center space-x-1.5 hover:text-black transition-colors border border-neutral-200 px-3 py-1.5"
-                title="목록 480/720 WebP, 상세 1200/1600 WebP를 미리 생성합니다."
+                title="목록 480/960 WebP, 상세 1200/2200 WebP를 미리 생성합니다."
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${imageOptimizing ? 'animate-spin' : ''}`} />
                 <span>{imageOptimizing ? 'WebP 생성 중...' : 'WebP 최적화'}</span>

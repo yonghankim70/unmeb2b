@@ -108,10 +108,10 @@ function getCloudImageUrl(week: string, code: string, file: string | null): stri
   if (!R2_IMAGE_BASE_URL) return null;
 
   if (file && !MAIN_IMAGE_HINTS.has(file.toLowerCase())) {
-    return `${R2_IMAGE_BASE_URL}/image-cache/detail/${encodeURIComponent(week)}/${getCacheSegment(code)}/${getCacheSegment(file)}-1600.webp`;
+    return `${R2_IMAGE_BASE_URL}/image-cache/detail/${encodeURIComponent(week)}/${getCacheSegment(code)}/${getCacheSegment(file)}-2200.webp`;
   }
 
-  return `${R2_IMAGE_BASE_URL}/image-cache/main/${encodeURIComponent(week)}/${getCacheSegment(code)}-720.webp`;
+  return `${R2_IMAGE_BASE_URL}/image-cache/main/${encodeURIComponent(week)}/${getCacheSegment(code)}-960.webp`;
 }
 
 function isInside(rootDir: string, targetPath: string): boolean {

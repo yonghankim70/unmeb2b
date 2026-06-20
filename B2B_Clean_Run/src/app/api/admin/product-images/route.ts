@@ -13,8 +13,8 @@ import {
 } from '@/lib/cloudflareR2';
 import { safeFileName } from '@/lib/pathSafety';
 
-const MAIN_WIDTHS = [480, 720] as const;
-const DETAIL_SOURCE_WIDTH = 1600;
+const MAIN_WIDTHS = [480, 960] as const;
+const DETAIL_SOURCE_WIDTHS = [2200, 1600, 1200] as const;
 
 function isMainImageFileName(fileName: string): boolean {
   const lower = fileName.toLowerCase();
@@ -83,7 +83,7 @@ async function listCloudDetailImageNames(week: string, code: string): Promise<st
   for (const key of keys) {
     if (!key.startsWith(prefix)) continue;
     const tail = key.slice(prefix.length);
-    const match = tail.match(/^(.+)-(?:1200|1600)\.webp$/i);
+    const match = tail.match(/^(.+)-(?:1200|1600|2200)\.webp$/i);
     if (!match) continue;
     const fileName = normalizeImageName(decodeR2KeySegment(match[1]));
     if (fileName) names.add(fileName);
@@ -128,13 +128,16 @@ async function writeCloudProduct(product: Product): Promise<void> {
 }
 
 async function fetchDetailSourceBuffer(week: string, code: string, fileName: string): Promise<Buffer> {
-  const key = getDetailImageKey(week, code, fileName, DETAIL_SOURCE_WIDTH);
-  const url = getR2PublicUrlForKey(key);
-  const response = await fetch(url, { cache: 'no-store' });
-  if (!response.ok) {
-    throw new Error(`대표 이미지 원본 조회 실패: ${fileName}`);
+  for (const width of DETAIL_SOURCE_WIDTHS) {
+    const key = getDetailImageKey(week, code, fileName, width);
+    const url = getR2PublicUrlForKey(key);
+    const response = await fetch(url, { cache: 'no-store' });
+    if (response.ok) {
+      return Buffer.from(await response.arrayBuffer());
+    }
   }
-  return Buffer.from(await response.arrayBuffer());
+
+  throw new Error(`대표 이미지 원본 조회 실패: ${fileName}`);
 }
 
 async function updateMainImageFromDetail(week: string, code: string, fileName: string): Promise<void> {
@@ -148,6 +151,7 @@ async function deleteDetailImageAssets(week: string, code: string, fileName: str
   await Promise.all([
     deleteR2Object(getDetailImageKey(week, code, fileName, 1200)),
     deleteR2Object(getDetailImageKey(week, code, fileName, 1600)),
+    deleteR2Object(getDetailImageKey(week, code, fileName, 2200)),
   ]);
 }
 

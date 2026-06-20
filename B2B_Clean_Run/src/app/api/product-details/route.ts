@@ -98,7 +98,7 @@ async function readCloudDetailImageNames(week: string, code: string): Promise<st
   for (const key of keys) {
     const tail = key.slice(prefix.length);
     if (!tail) continue;
-    const match = tail.match(/^(.*)-(?:1200|1600)\.webp$/i);
+    const match = tail.match(/^(.*)-(?:1200|1600|2200)\.webp$/i);
     if (!match) continue;
     const decoded = decodeTwice(match[1]).trim();
     if (!decoded || !isDetailAsset(decoded)) continue;
