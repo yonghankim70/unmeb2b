@@ -33,9 +33,11 @@ const MAIN_CACHE_LIMIT = Number(ENV.B2B_MAIN_IMAGE_WARM_LIMIT || process.env.B2B
 const DETAIL_IMAGE_WARM_COUNT = Number(ENV.B2B_DETAIL_IMAGE_WARM_COUNT || process.env.B2B_DETAIL_IMAGE_WARM_COUNT || '999');
 const WORKER_COUNT = Math.max(1, Number(ENV.B2B_IMAGE_WARM_WORKERS || process.env.B2B_IMAGE_WARM_WORKERS || '3'));
 const MAIN_QUALITY = Number(ENV.B2B_MAIN_IMAGE_QUALITY || process.env.B2B_MAIN_IMAGE_QUALITY || '92');
-const DETAIL_QUALITY = Number(ENV.B2B_DETAIL_IMAGE_QUALITY || process.env.B2B_DETAIL_IMAGE_QUALITY || '92');
+const DETAIL_QUALITY = Number(ENV.B2B_DETAIL_IMAGE_QUALITY || process.env.B2B_DETAIL_IMAGE_QUALITY || '94');
 const MAIN_WIDTHS = parseWidths(ENV.B2B_MAIN_IMAGE_WIDTHS || process.env.B2B_MAIN_IMAGE_WIDTHS, DEFAULT_MAIN_WIDTHS);
 const DETAIL_WIDTHS = parseWidths(ENV.B2B_DETAIL_IMAGE_WIDTHS || process.env.B2B_DETAIL_IMAGE_WIDTHS, DEFAULT_DETAIL_WIDTHS);
+const IMAGE_UPSCALE_ENABLED = (ENV.B2B_IMAGE_UPSCALE || process.env.B2B_IMAGE_UPSCALE || 'YES') !== 'NO';
+const IMAGE_UPSCALE_MAX_FACTOR = Math.max(1, Number(ENV.B2B_IMAGE_UPSCALE_MAX_FACTOR || process.env.B2B_IMAGE_UPSCALE_MAX_FACTOR || '2'));
 const TEMP_OUTPUT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'b2b-image-cache-'));
 const PENDING_COPY_MANIFEST = path.join(TEMP_OUTPUT_DIR, 'pending-copy.jsonl');
 let usePowerShellCopy = false;
@@ -267,17 +269,34 @@ function copyTempToTarget(tempPath, targetPath) {
   return result.status === 0;
 }
 
-function buildSharpPipeline(sourcePath, width, quality) {
+async function buildSharpPipeline(sourcePath, width, quality) {
+  let targetWidth = width;
+  let upscaled = false;
+  if (IMAGE_UPSCALE_ENABLED) {
+    try {
+      const metadata = await sharp(sourcePath, { failOn: 'none', limitInputPixels: false }).metadata();
+      const sourceWidth = metadata.width || width;
+      if (sourceWidth < width) {
+        targetWidth = Math.min(width, Math.max(1, Math.round(sourceWidth * IMAGE_UPSCALE_MAX_FACTOR)));
+        upscaled = targetWidth > sourceWidth;
+      }
+    } catch {
+      targetWidth = width;
+    }
+  }
+
   return sharp(sourcePath, { failOn: 'none', limitInputPixels: false })
     .rotate()
     .resize({
-      width,
+      width: targetWidth,
       fit: 'inside',
-      withoutEnlargement: true,
+      withoutEnlargement: !IMAGE_UPSCALE_ENABLED,
+      kernel: sharp.kernel.lanczos3,
     })
+    .sharpen(upscaled ? { sigma: 0.55, m1: 0.7, m2: 1.45 } : { sigma: 0.35, m1: 0.45, m2: 1.1 })
     .webp({
       quality,
-      effort: 4,
+      effort: 5,
       smartSubsample: true,
     });
 }
@@ -290,7 +309,8 @@ async function optimizeImage(sourcePath, targetPath, width, quality) {
     const sourceStats = fs.statSync(sourcePath);
     if (usePowerShellCopy) {
       const tempPath = path.join(TEMP_OUTPUT_DIR, `${Date.now()}-${Math.random().toString(16).slice(2)}.webp`);
-      await buildSharpPipeline(sourcePath, width, quality).toFile(tempPath);
+      const pipeline = await buildSharpPipeline(sourcePath, width, quality);
+      await pipeline.toFile(tempPath);
       if (!copyTempToTarget(tempPath, targetPath)) return 'skipped';
       try {
         fs.unlinkSync(tempPath);
@@ -300,7 +320,8 @@ async function optimizeImage(sourcePath, targetPath, width, quality) {
       return 'created';
     }
 
-    await buildSharpPipeline(sourcePath, width, quality).toFile(targetPath);
+    const pipeline = await buildSharpPipeline(sourcePath, width, quality);
+    await pipeline.toFile(targetPath);
     try {
       fs.utimesSync(targetPath, sourceStats.atime, sourceStats.mtime);
     } catch {
@@ -385,6 +406,8 @@ async function warmImageCache() {
     detailWidths: DETAIL_WIDTHS,
     mainQuality: MAIN_QUALITY,
     detailQuality: DETAIL_QUALITY,
+    imageUpscale: IMAGE_UPSCALE_ENABLED,
+    imageUpscaleMaxFactor: IMAGE_UPSCALE_MAX_FACTOR,
     detailImageWarmCount: DETAIL_IMAGE_WARM_COUNT,
     workerCount: WORKER_COUNT,
     stats,
@@ -402,6 +425,7 @@ async function warmImageCache() {
   console.log(`[Image Warm] cache=${cacheRoot}`);
   console.log(`[Image Warm] products=${products.length}, mainCreated=${stats.mainCreated}, mainFresh=${stats.mainFresh}, detailCreated=${stats.detailCreated}, detailFresh=${stats.detailFresh}, missing=${stats.missing}, skipped=${stats.skipped}, elapsed=${elapsed}ms`);
   console.log(`[Image Warm] mainWidths=${MAIN_WIDTHS.join(',')}, detailWidths=${DETAIL_WIDTHS.join(',')}, mainQuality=${MAIN_QUALITY}, detailQuality=${DETAIL_QUALITY}`);
+  console.log(`[Image Warm] imageUpscale=${IMAGE_UPSCALE_ENABLED ? 'YES' : 'NO'}, maxFactor=${IMAGE_UPSCALE_MAX_FACTOR}`);
   if (fs.existsSync(PENDING_COPY_MANIFEST)) {
     console.log(`[Image Warm] pendingCopyManifest=${PENDING_COPY_MANIFEST}`);
   }
@@ -418,6 +442,8 @@ async function warmImageCache() {
     detailWidths: DETAIL_WIDTHS,
     mainQuality: MAIN_QUALITY,
     detailQuality: DETAIL_QUALITY,
+    imageUpscale: IMAGE_UPSCALE_ENABLED,
+    imageUpscaleMaxFactor: IMAGE_UPSCALE_MAX_FACTOR,
     detailImageWarmCount: DETAIL_IMAGE_WARM_COUNT,
     workerCount: WORKER_COUNT,
     stats,

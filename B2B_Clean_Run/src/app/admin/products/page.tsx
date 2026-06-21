@@ -94,6 +94,7 @@ const ALL_COLUMNS: ColumnMeta[] = [
 
 const CLOUD_DETAIL_WIDTHS = [1200, 2200] as const;
 const CLOUD_MAIN_WIDTHS = [480, 960] as const;
+const CLOUD_IMAGE_MAX_UPSCALE_FACTOR = 2;
 const MAX_CLOUD_UPLOAD_IMAGES = 10;
 const SORT_MANAGER_OWNER_CART = 'OWNER-CART';
 const SORT_MANAGER_CATEGORIES = ['ALL', 'NEW', '선기획', 'KNIT', 'TOP', 'BOTTOM', 'OUTER', 'ONE-PIECE', SORT_MANAGER_OWNER_CART] as const;
@@ -232,7 +233,9 @@ async function imageFileToWebp(file: File, width: number, quality: number): Prom
     throw new Error(`${file.name} 이미지 크기를 확인하지 못했습니다.`);
   }
 
-  const ratio = Math.min(1, width / sourceWidth);
+  const maxUpscaledWidth = Math.max(sourceWidth, Math.round(sourceWidth * CLOUD_IMAGE_MAX_UPSCALE_FACTOR));
+  const outputWidth = Math.min(width, maxUpscaledWidth);
+  const ratio = outputWidth / sourceWidth;
   const targetWidth = Math.max(1, Math.round(sourceWidth * ratio));
   const targetHeight = Math.max(1, Math.round(sourceHeight * ratio));
   const canvas = document.createElement('canvas');
@@ -278,7 +281,7 @@ async function appendCloudWebpUploadPayload(
 
     for (const width of CLOUD_DETAIL_WIDTHS) {
       const field = `variant_${index}_detail_${width}`;
-      const blob = await imageFileToWebp(file, width, width === 2200 ? 0.92 : 0.9);
+      const blob = await imageFileToWebp(file, width, width === 2200 ? 0.94 : 0.92);
       formData.append(field, blob, `${file.name}-${width}.webp`);
       manifest.push({ field, fileName: file.name, kind: 'detail', width });
     }
@@ -286,7 +289,7 @@ async function appendCloudWebpUploadPayload(
     if (shouldUpdateMain && !updatedMain) {
       for (const width of CLOUD_MAIN_WIDTHS) {
         const field = `variant_${index}_main_${width}`;
-        const blob = await imageFileToWebp(file, width, width === 960 ? 0.92 : 0.88);
+        const blob = await imageFileToWebp(file, width, width === 960 ? 0.92 : 0.9);
         formData.append(field, blob, `${file.name}-main-${width}.webp`);
         manifest.push({ field, fileName: file.name, kind: 'main', width });
       }
