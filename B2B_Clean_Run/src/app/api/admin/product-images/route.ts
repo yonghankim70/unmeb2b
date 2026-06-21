@@ -127,6 +127,10 @@ async function writeCloudProduct(product: Product): Promise<void> {
   );
 }
 
+function markProductImagesChanged(product: Product): void {
+  (product as Product & { 이미지버전?: string }).이미지버전 = new Date().toISOString();
+}
+
 async function fetchDetailSourceBuffer(week: string, code: string, fileName: string): Promise<Buffer> {
   for (const width of DETAIL_SOURCE_WIDTHS) {
     const key = getDetailImageKey(week, code, fileName, width);
@@ -235,8 +239,9 @@ export async function POST(request: NextRequest) {
       const nextImages = orderedImages.map(normalizeImageName).filter((name: string) => existingSet.has(name));
       const missing = images.filter((name: string) => !nextImages.includes(name));
       product.상세이미지목록 = [...nextImages, ...missing];
+      markProductImagesChanged(product);
       await writeCloudProduct(product);
-      return NextResponse.json({ success: true, images: product.상세이미지목록 });
+      return NextResponse.json({ success: true, images: product.상세이미지목록, imageVersion: product.이미지버전 });
     }
 
     if (!fileName) {
@@ -254,14 +259,16 @@ export async function POST(request: NextRequest) {
       const nextImages = [fileName, ...images.filter((name) => name !== fileName)];
       await updateMainImageFromDetail(week, code, fileName);
       product.상세이미지목록 = nextImages;
+      markProductImagesChanged(product);
       await writeCloudProduct(product);
-      return NextResponse.json({ success: true, images: product.상세이미지목록, mainImage: fileName });
+      return NextResponse.json({ success: true, images: product.상세이미지목록, mainImage: fileName, imageVersion: product.이미지버전 });
     }
 
     if (action === 'delete') {
       const nextImages = images.filter((name) => name !== fileName);
       await deleteDetailImageAssets(week, code, fileName);
       product.상세이미지목록 = nextImages;
+      markProductImagesChanged(product);
       await writeCloudProduct(product);
 
       let warning = '';
@@ -274,7 +281,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      return NextResponse.json({ success: true, images: product.상세이미지목록, deleted: fileName, warning });
+      return NextResponse.json({ success: true, images: product.상세이미지목록, deleted: fileName, warning, imageVersion: product.이미지버전 });
     }
 
     return NextResponse.json({ success: false, message: '지원하지 않는 action입니다.' }, { status: 400 });

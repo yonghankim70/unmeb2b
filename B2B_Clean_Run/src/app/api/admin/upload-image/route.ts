@@ -225,6 +225,7 @@ async function uploadCloudPreparedProductImages(
     baseImageNames,
     [...uploadedNames],
   );
+  latestProduct.이미지버전 = new Date().toISOString();
   await writeCloudProduct(latestProduct);
 
   return {
@@ -232,6 +233,7 @@ async function uploadCloudPreparedProductImages(
     updatedMain: mainUpdated,
     totalCount: uploadedNames.size,
     images: latestProduct.상세이미지목록,
+    imageVersion: latestProduct.이미지버전,
   };
 }
 
@@ -283,6 +285,7 @@ export async function POST(request: NextRequest) {
         uploadedCount: result.totalCount,
         updatedMain: result.updatedMain,
         images: result.images,
+        imageVersion: result.imageVersion,
       });
     }
 

@@ -44,12 +44,13 @@ function getFolderName(product: Product): string {
 }
 
 function getDetailCacheKey(product: Product): string {
-  return `${product.주차}|${getFolderName(product)}`;
+  return `${product.주차}|${getFolderName(product)}|${product.이미지버전 || ''}`;
 }
 
 function getProductDetailsUrl(product: Product): string {
   const folderName = getFolderName(product);
-  return `/api/product-details?week=${encodeURIComponent(product.주차)}&code=${encodeURIComponent(folderName)}`;
+  const base = `/api/product-details?week=${encodeURIComponent(product.주차)}&code=${encodeURIComponent(folderName)}`;
+  return product.이미지버전 ? `${base}&v=${encodeURIComponent(product.이미지버전)}` : base;
 }
 
 function getImageUrl(product: Product, imageName: string): string {

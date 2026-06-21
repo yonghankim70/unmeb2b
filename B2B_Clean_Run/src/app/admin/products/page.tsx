@@ -1342,7 +1342,7 @@ export default function AdminPage() {
     return mergeClientImageNames(fallbackImages, productImages, managerImages);
   };
 
-  const applyProductImagesLocally = (code: string, images: string[]) => {
+  const applyProductImagesLocally = (code: string, images: string[], imageVersion?: string) => {
     const cleanImages = cleanImageNames(images);
     setProducts(prev => prev.map((product) => {
       const productCode = String(product.임시코드 || product.상품명 || '').trim();
@@ -1350,6 +1350,7 @@ export default function AdminPage() {
       return {
         ...product,
         상세이미지목록: cleanImages,
+        이미지버전: imageVersion || product.이미지버전 || '',
       };
     }));
     setManagingProduct(prev => {
@@ -1359,6 +1360,7 @@ export default function AdminPage() {
       return {
         ...prev,
         상세이미지목록: cleanImages,
+        이미지버전: imageVersion || prev.이미지버전 || '',
       };
     });
     setManagingImages(cleanImages);
@@ -1445,7 +1447,7 @@ export default function AdminPage() {
             : mergeClientImageNames(currentImages, responseUploadedFiles);
           uploadedFiles.push(...responseUploadedFiles);
           updatedMain = updatedMain || Boolean(data.updatedMain || prepared.updatedMain);
-          applyProductImagesLocally(code, currentImages);
+          applyProductImagesLocally(code, currentImages, data.imageVersion);
           setCacheBuster((value) => value + 1);
         } catch (error: any) {
           failedFiles.push(`${file.name}: ${error.message}`);
@@ -3123,7 +3125,7 @@ export default function AdminPage() {
         return;
       }
       const nextImages = Array.isArray(data.images) ? data.images : [];
-      applyProductImagesLocally(code, nextImages);
+      applyProductImagesLocally(code, nextImages, data.imageVersion);
       setCacheBuster((value) => value + 1);
       if (data.warning) {
         alert(data.warning);

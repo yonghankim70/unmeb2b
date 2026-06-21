@@ -41,6 +41,7 @@ export interface Product {
   등급할인제외?: string;
   동기화시간?: string;
   상세이미지목록?: string[];
+  이미지버전?: string;
   카테고리노출순서?: Record<string, number>;
 }
 
@@ -205,6 +206,7 @@ export function formatProduct(p: any): Product {
     등급할인제외: asString(p['등급할인제외'] || ''),
     동기화시간: asString(p['동기화시간'] || ''),
     상세이미지목록: Array.isArray(p['상세이미지목록']) ? p['상세이미지목록'] : undefined,
+    이미지버전: asString(p['이미지버전'] || ''),
     카테고리노출순서: categoryDisplayOrder,
   };
 }

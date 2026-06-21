@@ -4,6 +4,7 @@ interface ImageProductLike {
   주차: string;
   상품명: string;
   임시코드?: string;
+  이미지버전?: string;
 }
 
 const preloadedMainImages = new Set<string>();
@@ -26,6 +27,12 @@ function withImageBase(pathname: string): string {
   return `${R2_IMAGE_BASE_URL}${pathname}`;
 }
 
+function withImageVersion(url: string, product: ImageProductLike): string {
+  const version = String(product.이미지버전 || '').trim();
+  if (!version) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}v=${encodeURIComponent(version)}`;
+}
+
 function encodePathSegments(pathname: string): string {
   return pathname
     .split('/')
@@ -42,15 +49,15 @@ export function getCachedDetailImageUrl(product: ImageProductLike, fileName: str
 }
 
 export function getLegacyMainImageUrl(product: ImageProductLike): string {
-  return `/image-cache/main/${encodeURIComponent(product.주차)}/${getCacheSegment(getImageCode(product))}.jpg`;
+  return withImageVersion(`/image-cache/main/${encodeURIComponent(product.주차)}/${getCacheSegment(getImageCode(product))}.jpg`, product);
 }
 
 export function getLegacyDetailImageUrl(product: ImageProductLike, fileName: string): string {
-  return `/image-cache/detail/${encodeURIComponent(product.주차)}/${getCacheSegment(getImageCode(product))}/${encodeURIComponent(fileName)}`;
+  return withImageVersion(`/image-cache/detail/${encodeURIComponent(product.주차)}/${getCacheSegment(getImageCode(product))}/${encodeURIComponent(fileName)}`, product);
 }
 
 export function getOptimizedMainImageUrl(product: ImageProductLike, width = DEFAULT_MAIN_IMAGE_WIDTH): string {
-  return withImageBase(`/image-cache/main/${encodeURIComponent(product.주차)}/${getCacheSegment(getImageCode(product))}-${width}.webp`);
+  return withImageVersion(withImageBase(`/image-cache/main/${encodeURIComponent(product.주차)}/${getCacheSegment(getImageCode(product))}-${width}.webp`), product);
 }
 
 export function getOptimizedMainImageSrcSet(product: ImageProductLike): string {
@@ -64,7 +71,7 @@ export function getOptimizedDetailImageUrl(
   fileName: string,
   width = DEFAULT_DETAIL_IMAGE_WIDTH
 ): string {
-  return withImageBase(`/image-cache/detail/${encodeURIComponent(product.주차)}/${getCacheSegment(getImageCode(product))}/${getCacheSegment(fileName)}-${width}.webp`);
+  return withImageVersion(withImageBase(`/image-cache/detail/${encodeURIComponent(product.주차)}/${getCacheSegment(getImageCode(product))}/${getCacheSegment(fileName)}-${width}.webp`), product);
 }
 
 export function getEncodedOptimizedDetailImageUrl(
@@ -73,7 +80,7 @@ export function getEncodedOptimizedDetailImageUrl(
   width = DEFAULT_DETAIL_IMAGE_WIDTH
 ): string {
   const pathname = `/image-cache/detail/${encodeURIComponent(product.주차)}/${getCacheSegment(getImageCode(product))}/${getCacheSegment(fileName)}-${width}.webp`;
-  return withImageBase(encodePathSegments(pathname));
+  return withImageVersion(withImageBase(encodePathSegments(pathname)), product);
 }
 
 export function getOptimizedDetailImageSrcSet(product: ImageProductLike, fileName: string): string {
@@ -84,7 +91,8 @@ export function getOptimizedDetailImageSrcSet(product: ImageProductLike, fileNam
 
 export function getApiImageUrl(product: ImageProductLike, fileName?: string): string {
   const base = `/api/image?week=${encodeURIComponent(product.주차)}&code=${encodeURIComponent(getImageCode(product))}`;
-  return fileName ? `${base}&file=${encodeURIComponent(fileName)}` : base;
+  const imageUrl = fileName ? `${base}&file=${encodeURIComponent(fileName)}` : base;
+  return withImageVersion(imageUrl, product);
 }
 
 export function useApiImageFallback(
