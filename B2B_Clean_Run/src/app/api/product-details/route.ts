@@ -70,6 +70,16 @@ function sortImageNames(images: string[]): string[] {
 }
 
 function mergeProductAndStoredImages(productImages: string[], storedImages: string[]): string[] {
+  const productUnique: string[] = [];
+  for (const name of productImages) {
+    const cleanName = safeFileName(String(name || '').trim());
+    if (cleanName && !productUnique.includes(cleanName)) productUnique.push(cleanName);
+  }
+
+  if (productUnique.length > 0) {
+    return productUnique;
+  }
+
   const storedUnique: string[] = [];
   for (const name of storedImages) {
     const cleanName = safeFileName(String(name || '').trim());
@@ -77,17 +87,10 @@ function mergeProductAndStoredImages(productImages: string[], storedImages: stri
   }
 
   if (storedUnique.length === 0) {
-    return sortImageNames(productImages.map((name) => safeFileName(String(name || '').trim())).filter(Boolean));
+    return [];
   }
 
-  const storedSet = new Set(storedUnique);
-  const ordered = productImages
-    .map((name) => safeFileName(String(name || '').trim()))
-    .filter((name) => name && storedSet.has(name));
-  for (const storedName of storedUnique) {
-    if (!ordered.includes(storedName)) ordered.push(storedName);
-  }
-  return ordered;
+  return storedUnique;
 }
 
 async function readCloudDetailImageNames(week: string, code: string): Promise<string[]> {
