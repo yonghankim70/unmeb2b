@@ -538,6 +538,11 @@ export default function AdminPage() {
       .map(key => ALL_COLUMNS.find(c => c.key === key))
       .filter(Boolean) as ColumnMeta[];
   }, [columnOrder]);
+  const hiddenColumnSet = useMemo(() => new Set(hiddenColumns), [hiddenColumns]);
+  const visibleOrderedColumns = useMemo(
+    () => orderedColumns.filter(col => !hiddenColumnSet.has(col.key)),
+    [orderedColumns, hiddenColumnSet]
+  );
 
   const getColumnWidth = (colKey: string, widths: { [key: string]: number } = columnWidthsRef.current) => {
     return widths[colKey] || ALL_COLUMNS.find(c => c.key === colKey)?.defaultWidth || 100;
@@ -579,7 +584,7 @@ export default function AdminPage() {
       if (col.key === colKey) {
         return `${left}px`;
       }
-      const isVisible = !hiddenColumns.includes(col.key);
+      const isVisible = !hiddenColumnSet.has(col.key);
       if (col.isSticky && isVisible) {
         left += columnWidths[col.key] || col.defaultWidth;
       }
@@ -692,22 +697,19 @@ export default function AdminPage() {
   };
 
   const totalTableWidth = ALL_COLUMNS.reduce((sum, col) => {
-    if (hiddenColumns.includes(col.key)) return sum;
+    if (hiddenColumnSet.has(col.key)) return sum;
     return sum + (columnWidths[col.key] || col.defaultWidth);
   }, 0);
 
   const renderCellContent = (colKey: string, product: Product, globalIdx: number, relativeIdx: number) => {
     const pKey = product.임시코드 || product.상품명;
-    const isChecked = selectedKeys.includes(pKey);
-    const imgCode = product.임시코드 || product.상품명;
-    const imageUrl = `/api/image?week=${encodeURIComponent(product.주차)}&code=${encodeURIComponent(imgCode)}${cacheBuster ? `&t=${cacheBuster}` : ''}`;
 
     switch (colKey) {
       case '체크박스':
         return (
           <input 
             type="checkbox"
-            checked={isChecked}
+            checked={selectedKeySet.has(pKey)}
             onChange={() => handleToggleSelect(pKey)}
             className="rounded-none border-neutral-300 focus:ring-0 text-black w-3.5 h-3.5 cursor-pointer mx-auto block"
           />
@@ -733,7 +735,9 @@ export default function AdminPage() {
             className="w-full text-center px-1.5 py-1 border border-transparent hover:border-neutral-300 focus:border-black bg-transparent focus:bg-white text-xs font-mono focus:outline-none rounded-none"
           />
         );
-      case '이미지':
+      case '이미지': {
+        const imgCode = product.임시코드 || product.상품명;
+        const imageUrl = `/api/image?week=${encodeURIComponent(product.주차)}&code=${encodeURIComponent(imgCode)}${cacheBuster ? `&t=${cacheBuster}` : ''}`;
         return (
           <div className="flex flex-col items-center gap-1.5 py-1.5 mx-auto">
             <img 
@@ -785,6 +789,7 @@ export default function AdminPage() {
             )}
           </div>
         );
+      }
       case '주차':
         return (
           <span className="text-neutral-450 select-none font-medium block text-center">{product.주차}</span>
@@ -1117,6 +1122,7 @@ export default function AdminPage() {
 
   // 체크박스 선택 관리를 위한 식별자(임시코드 또는 상품명) 배열 상태
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  const selectedKeySet = useMemo(() => new Set(selectedKeys), [selectedKeys]);
   const [dirtyProductKeys, setDirtyProductKeys] = useState<string[]>([]);
   const [deletedProductKeys, setDeletedProductKeys] = useState<string[]>([]);
 
@@ -2406,7 +2412,7 @@ export default function AdminPage() {
         globalSettings: {
           ...globalSettings,
           columnWidths,
-          visibleColumns: ALL_COLUMNS.filter(c => !hiddenColumns.includes(c.key)).map(c => c.key),
+          visibleColumns: ALL_COLUMNS.filter(c => !hiddenColumnSet.has(c.key)).map(c => c.key),
           columnOrder
         }
       };
@@ -2471,7 +2477,7 @@ export default function AdminPage() {
           globalSettings: {
             ...globalSettings,
             columnWidths,
-            visibleColumns: ALL_COLUMNS.filter(c => !hiddenColumns.includes(c.key)).map(c => c.key),
+            visibleColumns: ALL_COLUMNS.filter(c => !hiddenColumnSet.has(c.key)).map(c => c.key),
             columnOrder
           }
         })
@@ -2497,7 +2503,7 @@ export default function AdminPage() {
 
   // 엑셀 내보내기 (체크된 상품들을 Master.xlsx 상품 마스터 시트에 덮어씀)
   const handleExportSelected = async () => {
-    const selectedList = products.filter(p => selectedKeys.includes(p.임시코드 || p.상품명));
+    const selectedList = products.filter(p => selectedKeySet.has(p.임시코드 || p.상품명));
     if (selectedList.length === 0) {
       alert('엑셀로 내보낼 상품을 1개 이상 체크박스로 선택해 주세요.');
       return;
@@ -2566,14 +2572,14 @@ export default function AdminPage() {
     }
 
     const keysToDelete = products
-      .filter(p => selectedKeys.includes(p.임시코드 || p.상품명))
+      .filter(p => selectedKeySet.has(p.임시코드 || p.상품명))
       .map(getProductKey)
       .filter(Boolean);
     
     // 선택되지 않은 상품들만 남기고 필터링
     const remainingProducts = products.filter(p => {
       const key = p.임시코드 || p.상품명;
-      return !selectedKeys.includes(key);
+      return !selectedKeySet.has(key);
     });
 
     setProducts(remainingProducts);
@@ -3342,21 +3348,20 @@ export default function AdminPage() {
   // 체크박스 전체 선택/해제 로직
   const isAllSelected = filtered.length > 0 && filtered.every(({ product: p }) => {
     const key = p.임시코드 || p.상품명;
-    return selectedKeys.includes(key);
+    return selectedKeySet.has(key);
   });
 
   const handleToggleSelectAll = () => {
+    const currentKeys = filtered.map(({ product: p }) => p.임시코드 || p.상품명);
+
     if (isAllSelected) {
-      const currentKeys = filtered.map(({ product: p }) => p.임시코드 || p.상품명);
-      setSelectedKeys(prev => prev.filter(k => !currentKeys.includes(k)));
+      const currentKeySet = new Set(currentKeys);
+      setSelectedKeys(prev => prev.filter(k => !currentKeySet.has(k)));
     } else {
-      const currentKeys = filtered.map(({ product: p }) => p.임시코드 || p.상품명);
       setSelectedKeys(prev => {
-        const next = [...prev];
-        currentKeys.forEach(k => {
-          if (!next.includes(k)) next.push(k);
-        });
-        return next;
+        const next = new Set(prev);
+        currentKeys.forEach(k => next.add(k));
+        return Array.from(next);
       });
     }
   };
@@ -4005,7 +4010,7 @@ export default function AdminPage() {
                   <span className="text-[9px] text-neutral-400 block pb-1 border-b border-neutral-100 font-semibold uppercase">표시할 컬럼 선택</span>
                   <div className="space-y-1">
                     {ALL_COLUMNS.filter(c => c.canHide).map(col => {
-                      const isVisible = !hiddenColumns.includes(col.key);
+                      const isVisible = !hiddenColumnSet.has(col.key);
                       return (
                         <label 
                           key={col.key} 
@@ -4065,9 +4070,7 @@ export default function AdminPage() {
             >
               <thead>
                 <tr className="bg-neutral-50 border-b border-neutral-200 text-[10px] text-neutral-500 tracking-wider select-none uppercase">
-                  {orderedColumns.map(col => {
-                    if (hiddenColumns.includes(col.key)) return null;
-
+                  {visibleOrderedColumns.map(col => {
                     const width = columnWidths[col.key] || col.defaultWidth;
                     const isSticky = col.isSticky;
                     const leftOffset = isSticky ? getStickyLeft(col.key) : undefined;
@@ -4182,9 +4185,7 @@ export default function AdminPage() {
 
                   return (
                     <tr key={`${pKey}-${globalIdx}`} className="hover:bg-neutral-50/50 group">
-                      {orderedColumns.map(col => {
-                        if (hiddenColumns.includes(col.key)) return null;
-
+                      {visibleOrderedColumns.map(col => {
                         const width = columnWidths[col.key] || col.defaultWidth;
                         const isSticky = col.isSticky;
                         const leftOffset = isSticky ? getStickyLeft(col.key) : undefined;
