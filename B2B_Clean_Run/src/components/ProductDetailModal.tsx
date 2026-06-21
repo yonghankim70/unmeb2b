@@ -249,6 +249,8 @@ export default function ProductDetailModal({
   const detailImagePaneRef = React.useRef<HTMLDivElement>(null);
   const pendingWheelDeltaRef = React.useRef(0);
   const wheelFrameRef = React.useRef<number | null>(null);
+  const onCloseRef = React.useRef(onClose);
+  const modalHistoryTokenRef = React.useRef<string | null>(null);
   const [images, setImages] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedColor, setSelectedColor] = useState('');
@@ -355,6 +357,60 @@ export default function ProductDetailModal({
   };
 
   useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!isOpen || typeof window === 'undefined') return;
+
+    const token = `unme-product-detail-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    modalHistoryTokenRef.current = token;
+
+    const currentState = window.history.state && typeof window.history.state === 'object'
+      ? window.history.state
+      : {};
+    window.history.pushState(
+      {
+        ...currentState,
+        __unmeProductDetailModal: token,
+      },
+      '',
+      window.location.href,
+    );
+
+    const handlePopState = () => {
+      if (modalHistoryTokenRef.current !== token) return;
+      modalHistoryTokenRef.current = null;
+      onCloseRef.current();
+    };
+
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      if (modalHistoryTokenRef.current === token) {
+        modalHistoryTokenRef.current = null;
+      }
+    };
+  }, [isOpen]);
+
+  const closeModal = () => {
+    if (typeof window !== 'undefined' && modalHistoryTokenRef.current) {
+      const token = modalHistoryTokenRef.current;
+      window.history.back();
+
+      window.setTimeout(() => {
+        if (modalHistoryTokenRef.current !== token) return;
+        modalHistoryTokenRef.current = null;
+        onCloseRef.current();
+      }, 150);
+      return;
+    }
+
+    onCloseRef.current();
+  };
+
+  useEffect(() => {
     if (!isOpen || !product) return;
 
     let cancelled = false;
@@ -456,7 +512,7 @@ export default function ProductDetailModal({
       {/* Backdrop */}
       <div 
         className="absolute inset-0 bg-black/40 transition-opacity duration-300"
-        onClick={onClose}
+        onClick={closeModal}
       />
 
       {/* Modal Container */}
@@ -464,7 +520,7 @@ export default function ProductDetailModal({
         
         {/* Close Button */}
         <button 
-          onClick={onClose}
+          onClick={closeModal}
           className="absolute top-4 right-4 z-30 text-neutral-400 hover:text-black transition-colors bg-white/80 p-1.5 rounded-full shadow-sm"
         >
           <X className="w-5 h-5 stroke-[1.5]" />
