@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import { cookies } from 'next/headers';
+import { getAuthSession } from '@/lib/auth';
 
 const ADMIN_COOKIE_NAME = 'b2b_admin_session';
 const ADMIN_SESSION_VALUE = 'admin';
@@ -40,12 +41,23 @@ export async function isAdminAuthenticated(): Promise<boolean> {
   try {
     const cookieStore = await cookies();
     const cookie = cookieStore.get(ADMIN_COOKIE_NAME)?.value;
-    if (!cookie) return false;
+    if (!cookie) {
+      const authSession = await getAuthSession();
+      return Boolean(authSession?.isAdmin || authSession?.discountGrade === 'ADMIN');
+    }
 
     const [value, signature] = cookie.split('.');
-    if (value !== ADMIN_SESSION_VALUE || !signature) return false;
+    if (value !== ADMIN_SESSION_VALUE || !signature) {
+      const authSession = await getAuthSession();
+      return Boolean(authSession?.isAdmin || authSession?.discountGrade === 'ADMIN');
+    }
 
-    return safeEqual(signature, sign(value));
+    if (safeEqual(signature, sign(value))) {
+      return true;
+    }
+
+    const authSession = await getAuthSession();
+    return Boolean(authSession?.isAdmin || authSession?.discountGrade === 'ADMIN');
   } catch (error) {
     console.error('[Admin Auth] Failed to verify admin session:', error);
     return false;
