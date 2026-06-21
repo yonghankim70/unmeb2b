@@ -60,6 +60,17 @@ interface ColumnMeta {
   canHide: boolean;
 }
 
+interface ColumnResizeSession {
+  colKey: string;
+  startX: number;
+  startWidth: number;
+  latestWidth: number;
+  cells: HTMLElement[];
+  stickyCellsByKey: Record<string, HTMLElement[]>;
+  table: HTMLTableElement | null;
+  topScrollSizer: HTMLElement | null;
+}
+
 const ALL_COLUMNS: ColumnMeta[] = [
   { key: '체크박스', label: '선택', defaultWidth: 40, isSticky: true, canHide: false },
   { key: '시즌', label: '시즌', defaultWidth: 70, isSticky: true, canHide: false },
@@ -404,6 +415,12 @@ export default function AdminPage() {
   // Horizontal Scroll Sync Refs
   const topScrollRef = useRef<HTMLDivElement>(null);
   const tableContainerRef = useRef<HTMLDivElement>(null);
+  const productTableRef = useRef<HTMLTableElement>(null);
+  const columnWidthsRef = useRef<{ [key: string]: number }>({});
+  const hiddenColumnsRef = useRef<string[]>([]);
+  const orderedColumnsRef = useRef<ColumnMeta[]>([]);
+  const resizeFrameRef = useRef<number | null>(null);
+  const resizeSessionRef = useRef<ColumnResizeSession | null>(null);
 
   // Sync scroll from top scrollbar to table container
   const handleTopScroll = () => {
@@ -522,6 +539,29 @@ export default function AdminPage() {
       .filter(Boolean) as ColumnMeta[];
   }, [columnOrder]);
 
+  const getColumnWidth = (colKey: string, widths: { [key: string]: number } = columnWidthsRef.current) => {
+    return widths[colKey] || ALL_COLUMNS.find(c => c.key === colKey)?.defaultWidth || 100;
+  };
+
+  const getTotalTableWidth = (widths: { [key: string]: number } = columnWidthsRef.current) => {
+    return ALL_COLUMNS.reduce((sum, col) => {
+      if (hiddenColumnsRef.current.includes(col.key)) return sum;
+      return sum + (widths[col.key] || col.defaultWidth);
+    }, 0);
+  };
+
+  useEffect(() => {
+    columnWidthsRef.current = columnWidths;
+  }, [columnWidths]);
+
+  useEffect(() => {
+    hiddenColumnsRef.current = hiddenColumns;
+  }, [hiddenColumns]);
+
+  useEffect(() => {
+    orderedColumnsRef.current = orderedColumns;
+  }, [orderedColumns]);
+
   // 컬럼 너비 및 표시 상태 외부 클릭 감지
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -547,21 +587,102 @@ export default function AdminPage() {
     return '0px';
   };
 
+  const applyColumnResizePreview = (session: ColumnResizeSession, width: number) => {
+    const nextWidths = {
+      ...columnWidthsRef.current,
+      [session.colKey]: width,
+    };
+    const widthPx = `${width}px`;
+
+    session.cells.forEach((cell) => {
+      cell.style.width = widthPx;
+      cell.style.minWidth = widthPx;
+      cell.style.maxWidth = widthPx;
+    });
+
+    const totalWidth = getTotalTableWidth(nextWidths);
+    if (session.table) {
+      session.table.style.minWidth = `${totalWidth}px`;
+    }
+    if (session.topScrollSizer) {
+      session.topScrollSizer.style.minWidth = `${totalWidth}px`;
+    }
+
+    let left = 0;
+    for (const col of orderedColumnsRef.current) {
+      if (!col.isSticky || hiddenColumnsRef.current.includes(col.key)) continue;
+      const cells = session.stickyCellsByKey[col.key] || [];
+      const leftPx = `${left}px`;
+      cells.forEach((cell) => {
+        cell.style.left = leftPx;
+      });
+      left += nextWidths[col.key] || col.defaultWidth;
+    }
+  };
+
   const handleResizeStart = (colKey: string, e: React.MouseEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     const startX = e.pageX;
-    const startWidth = columnWidths[colKey] || ALL_COLUMNS.find(c => c.key === colKey)?.defaultWidth || 100;
+    const startWidth = getColumnWidth(colKey);
+    const table = productTableRef.current;
+    const cells = table
+      ? Array.from(table.querySelectorAll<HTMLElement>('[data-product-col]')).filter(cell => cell.dataset.productCol === colKey)
+      : [];
+    const stickyCellsByKey: Record<string, HTMLElement[]> = {};
+    if (table) {
+      orderedColumnsRef.current.forEach((col) => {
+        if (!col.isSticky) return;
+        stickyCellsByKey[col.key] = Array
+          .from(table.querySelectorAll<HTMLElement>('[data-product-col]'))
+          .filter(cell => cell.dataset.productCol === col.key);
+      });
+    }
+    const topScrollSizer = topScrollRef.current?.firstElementChild instanceof HTMLElement
+      ? topScrollRef.current.firstElementChild
+      : null;
+
+    resizeSessionRef.current = {
+      colKey,
+      startX,
+      startWidth,
+      latestWidth: startWidth,
+      cells,
+      stickyCellsByKey,
+      table,
+      topScrollSizer,
+    };
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
+      const session = resizeSessionRef.current;
+      if (!session) return;
       const deltaX = moveEvent.pageX - startX;
       const newWidth = Math.max(30, startWidth + deltaX);
-      setColumnWidths(prev => ({
-        ...prev,
-        [colKey]: newWidth
-      }));
+      session.latestWidth = newWidth;
+
+      if (resizeFrameRef.current !== null) return;
+      resizeFrameRef.current = window.requestAnimationFrame(() => {
+        resizeFrameRef.current = null;
+        const activeSession = resizeSessionRef.current;
+        if (!activeSession) return;
+        applyColumnResizePreview(activeSession, activeSession.latestWidth);
+      });
     };
 
     const handleMouseUp = () => {
+      const session = resizeSessionRef.current;
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current);
+        resizeFrameRef.current = null;
+      }
+      if (session) {
+        applyColumnResizePreview(session, session.latestWidth);
+        setColumnWidths(prev => ({
+          ...prev,
+          [colKey]: session.latestWidth
+        }));
+      }
+      resizeSessionRef.current = null;
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
@@ -3937,7 +4058,11 @@ export default function AdminPage() {
               onScroll={handleTableScroll}
               className="border border-neutral-200 overflow-x-auto overflow-y-auto max-h-[68vh] shadow-sm bg-white relative"
             >
-            <table className="w-full border-collapse text-left text-xs font-mono" style={{ minWidth: `${totalTableWidth}px`, tableLayout: 'fixed' }}>
+            <table
+              ref={productTableRef}
+              className="w-full border-collapse text-left text-xs font-mono"
+              style={{ minWidth: `${totalTableWidth}px`, tableLayout: 'fixed' }}
+            >
               <thead>
                 <tr className="bg-neutral-50 border-b border-neutral-200 text-[10px] text-neutral-500 tracking-wider select-none uppercase">
                   {orderedColumns.map(col => {
@@ -3950,6 +4075,7 @@ export default function AdminPage() {
                     return (
                       <th
                         key={col.key}
+                        data-product-col={col.key}
                         draggable={col.key !== '체크박스'}
                         onDragStart={(e) => {
                           if (col.key === '체크박스') return;
@@ -4077,6 +4203,7 @@ export default function AdminPage() {
                         return (
                           <td
                             key={col.key}
+                            data-product-col={col.key}
                             className={`py-2 px-2 border-r border-neutral-200 ${
                               col.key === '상품명' ? 'border-r-2 border-neutral-300' : ''
                             } ${
