@@ -104,14 +104,25 @@ function getCacheSegment(value: string): string {
   return encodeURIComponent(encodeURIComponent(value));
 }
 
-function getCloudImageUrl(week: string, code: string, file: string | null): string | null {
+function appendImageVersion(url: string, version: string | null): string {
+  if (!version) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}v=${encodeURIComponent(version)}`;
+}
+
+function getCloudImageUrl(week: string, code: string, file: string | null, version: string | null): string | null {
   if (!R2_IMAGE_BASE_URL) return null;
 
   if (file && !MAIN_IMAGE_HINTS.has(file.toLowerCase())) {
-    return `${R2_IMAGE_BASE_URL}/image-cache/detail/${encodeURIComponent(week)}/${getCacheSegment(code)}/${getCacheSegment(file)}-2200.webp`;
+    return appendImageVersion(
+      `${R2_IMAGE_BASE_URL}/image-cache/detail/${encodeURIComponent(week)}/${getCacheSegment(code)}/${getCacheSegment(file)}-2200.webp`,
+      version,
+    );
   }
 
-  return `${R2_IMAGE_BASE_URL}/image-cache/main/${encodeURIComponent(week)}/${getCacheSegment(code)}-960.webp`;
+  return appendImageVersion(
+    `${R2_IMAGE_BASE_URL}/image-cache/main/${encodeURIComponent(week)}/${getCacheSegment(code)}-960.webp`,
+    version,
+  );
 }
 
 function isInside(rootDir: string, targetPath: string): boolean {
@@ -371,7 +382,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (isCloudDbEnabled()) {
-      const cloudImageUrl = getCloudImageUrl(week, code, file);
+      const cloudImageUrl = getCloudImageUrl(week, code, file, version);
       if (cloudImageUrl) {
         return NextResponse.redirect(cloudImageUrl, {
           status: 307,
