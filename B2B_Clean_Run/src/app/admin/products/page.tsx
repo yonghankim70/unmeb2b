@@ -3034,6 +3034,17 @@ export default function AdminPage() {
     await runImageAction('reorder', { orderedImages: nextImages });
   };
 
+  const beginManagedImageDrag = (event: React.DragEvent<HTMLElement>, imageName: string) => {
+    if (imageActionLoading) {
+      event.preventDefault();
+      return;
+    }
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', imageName);
+    setDraggedImageName(imageName);
+    setDragOverImageName(imageName);
+  };
+
   const handleManagedUploadFiles = (fileList: File[]) => {
     if (!managingProduct || fileList.length === 0) return;
     setImageDropActive(false);
@@ -4200,20 +4211,19 @@ export default function AdminPage() {
                     <div
                       key={imageName}
                       draggable={!imageActionLoading}
-                      onDragStart={() => {
-                        setDraggedImageName(imageName);
-                        setDragOverImageName(imageName);
-                      }}
+                      onDragStart={(e) => beginManagedImageDrag(e, imageName)}
                       onDragOver={(e) => {
                         e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
                         if (!imageActionLoading) {
                           setDragOverImageName(imageName);
                         }
                       }}
                       onDrop={(e) => {
                         e.preventDefault();
-                        if (!draggedImageName || imageActionLoading) return;
-                        void reorderManagedImagesByDrag(draggedImageName, imageName);
+                        const sourceImageName = draggedImageName || e.dataTransfer.getData('text/plain');
+                        if (!sourceImageName || imageActionLoading) return;
+                        void reorderManagedImagesByDrag(sourceImageName, imageName);
                       }}
                       onDragEnd={() => {
                         setDraggedImageName(null);
@@ -4231,16 +4241,8 @@ export default function AdminPage() {
                         <img
                           src={withCacheBuster(getCachedDetailImageUrl(managingProduct, imageName))}
                           alt=""
-                          draggable={!imageActionLoading}
-                          onDragStart={(e) => {
-                            if (imageActionLoading) {
-                              e.preventDefault();
-                              return;
-                            }
-                            setDraggedImageName(imageName);
-                            setDragOverImageName(imageName);
-                          }}
-                          className="w-full h-full object-cover"
+                          draggable={false}
+                          className="w-full h-full object-cover pointer-events-none"
                           onError={(event) => applyImageFallbacks(event, [
                             withCacheBuster(getEncodedOptimizedDetailImageUrl(managingProduct, imageName)),
                             withCacheBuster(getLegacyDetailImageUrl(managingProduct, imageName)),
