@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Product, ItemMaster, ColorMaster, CategoryMaster, Customer } from '@/lib/db';
 import { useRouter, usePathname } from 'next/navigation';
 import { clearAdminAuthCache, hasFreshAdminAuthCache, markAdminAuthenticated, prefetchAdminRoutes, verifyAdminStatus } from '@/lib/adminClient';
@@ -394,6 +394,9 @@ export default function AdminPage() {
   const productGridAnchorRef = useRef<HTMLDivElement>(null);
   const imageUploadInputRef = useRef<HTMLInputElement>(null);
   const folderSyncInputRef = useRef<HTMLInputElement>(null);
+  const pendingAdminActionRef = useRef<(() => Promise<void> | void) | null>(null);
+  const adminAuthCheckInFlightRef = useRef(false);
+  const lastAdminStatusCheckRef = useRef(0);
   
   // Horizontal Scroll Sync Refs
   const topScrollRef = useRef<HTMLDivElement>(null);
@@ -434,6 +437,11 @@ export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [isLocalAdminHost, setIsLocalAdminHost] = useState(false);
+  const [adminReauthOpen, setAdminReauthOpen] = useState(false);
+  const [adminReauthPassword, setAdminReauthPassword] = useState('');
+  const [adminReauthMessage, setAdminReauthMessage] = useState('관리자 로그인이 필요합니다.');
+  const [adminReauthError, setAdminReauthError] = useState('');
+  const [adminReauthSubmitting, setAdminReauthSubmitting] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1084,6 +1092,117 @@ export default function AdminPage() {
   const [newSeasonName, setNewSeasonName] = useState('');
   const [newGradeName, setNewGradeName] = useState('');
 
+  const openAdminReauthModal = useCallback((
+    message = '관리자 로그인이 필요합니다.',
+    retryAction?: () => Promise<void> | void,
+  ) => {
+    clearAdminAuthCache();
+    pendingAdminActionRef.current = retryAction || null;
+    setAdminReauthMessage(message);
+    setAdminReauthError('');
+    setAdminReauthPassword('');
+    setAdminReauthOpen(true);
+  }, []);
+
+  const ensureAdminSession = useCallback(async (
+    actionLabel = '작업',
+    retryAction?: () => Promise<void> | void,
+    forceCheck = false,
+  ) => {
+    if (adminReauthOpen || adminAuthCheckInFlightRef.current) {
+      return false;
+    }
+
+    const now = Date.now();
+    const recentlyChecked = now - lastAdminStatusCheckRef.current < 30_000;
+    if (!forceCheck && recentlyChecked && hasFreshAdminAuthCache()) {
+      return true;
+    }
+
+    adminAuthCheckInFlightRef.current = true;
+    try {
+      const authenticated = await verifyAdminStatus();
+      lastAdminStatusCheckRef.current = Date.now();
+      if (authenticated) {
+        markAdminAuthenticated();
+        return true;
+      }
+
+      openAdminReauthModal(
+        `${actionLabel}을 계속하려면 관리자 비밀번호를 다시 입력해 주세요.`,
+        retryAction,
+      );
+      return false;
+    } finally {
+      adminAuthCheckInFlightRef.current = false;
+    }
+  }, [adminReauthOpen, openAdminReauthModal]);
+
+  const handleAdminReauthSubmit = async (event?: React.FormEvent) => {
+    event?.preventDefault();
+    const password = adminReauthPassword.trim();
+    if (!password) {
+      setAdminReauthError('관리자 비밀번호를 입력해 주세요.');
+      return;
+    }
+
+    setAdminReauthSubmitting(true);
+    setAdminReauthError('');
+
+    try {
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+      const data = await readJsonResponse(res, '관리자 로그인 실패');
+      if (!res.ok || !data?.success) {
+        setAdminReauthError(data?.message || '관리자 비밀번호가 올바르지 않습니다.');
+        return;
+      }
+
+      markAdminAuthenticated();
+      setIsAuthenticated(true);
+      setAdminReauthOpen(false);
+      setAdminReauthPassword('');
+      lastAdminStatusCheckRef.current = Date.now();
+
+      const retryAction = pendingAdminActionRef.current;
+      pendingAdminActionRef.current = null;
+      if (retryAction) {
+        window.setTimeout(() => {
+          void retryAction();
+        }, 0);
+      }
+    } catch (error) {
+      setAdminReauthError((error as Error)?.message || '관리자 로그인 중 오류가 발생했습니다.');
+    } finally {
+      setAdminReauthSubmitting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const handleAdminInteraction = (event: Event) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (!target.closest('[data-admin-page-root]')) return;
+      if (target.closest('[data-admin-reauth-modal]')) return;
+      if (!target.closest('input, textarea, select, button, [role="button"], [contenteditable="true"]')) return;
+
+      void ensureAdminSession('관리자 작업');
+    };
+
+    document.addEventListener('focusin', handleAdminInteraction, true);
+    document.addEventListener('pointerdown', handleAdminInteraction, true);
+
+    return () => {
+      document.removeEventListener('focusin', handleAdminInteraction, true);
+      document.removeEventListener('pointerdown', handleAdminInteraction, true);
+    };
+  }, [ensureAdminSession, isAuthenticated]);
+
   const withCacheBuster = (url: string) => {
     if (!cacheBuster) return url;
     return `${url}${url.includes('?') ? '&' : '?'}t=${cacheBuster}`;
@@ -1584,9 +1703,7 @@ export default function AdminPage() {
       if (!res.ok || !data.success) {
         const message = data?.message || '상품 데이터를 불러오지 못했습니다.';
         if (res.status === 401) {
-          clearAdminAuthCache();
-          alert('관리자 로그인이 만료되었습니다. 다시 로그인해 주세요.');
-          router.push('/admin');
+          openAdminReauthModal('관리자 로그인이 만료되었습니다. 다시 로그인하면 상품 데이터를 이어서 불러옵니다.', () => loadData());
         } else {
           alert(message);
         }
@@ -1745,6 +1862,7 @@ export default function AdminPage() {
   };
 
   const handleSaveSettings = async () => {
+    if (!(await ensureAdminSession('카테고리/포인트 설정 저장', () => handleSaveSettings(), true))) return;
     setSaving(true);
     try {
       const updatedGlobalSettings = {
@@ -1764,7 +1882,11 @@ export default function AdminPage() {
           categories: settingsCategories
         })
       });
-      const data = await res.json();
+      const data = await readJsonResponse(res, '카테고리 및 포인트 설정 저장 실패');
+      if (res.status === 401) {
+        openAdminReauthModal('관리자 로그인이 만료되었습니다. 다시 로그인하면 설정 저장을 이어서 실행합니다.', () => handleSaveSettings());
+        return;
+      }
       if (data.success) {
         alert('카테고리 및 포인트 설정이 성공적으로 저장되었습니다.');
         await loadData();
@@ -2145,6 +2267,7 @@ export default function AdminPage() {
 
   // 현재 테이블에 수정된 최종 데이터를 JSON Primary DB에 저장
   const handleSaveAll = async () => {
+    if (!(await ensureAdminSession('상품 저장', () => handleSaveAll(), true))) return;
     if (saving) return;
     setSaving(true);
 
@@ -2181,6 +2304,10 @@ export default function AdminPage() {
         body: JSON.stringify(payload)
       });
       const data = await readJsonResponse(res, '상품 저장 실패');
+      if (res.status === 401) {
+        openAdminReauthModal('관리자 로그인이 만료되었습니다. 다시 로그인하면 방금 누른 저장을 이어서 실행합니다.', () => handleSaveAll());
+        return;
+      }
       if (data.success) {
         const savedCount = Number(data.savedProductCount || 0);
         const deletedCount = Number(data.deletedProductCount || 0);
@@ -2211,6 +2338,7 @@ export default function AdminPage() {
 
   // 글로벌 설정만 단독으로 JSON DB에 저장
   const handleSaveGlobalSettings = async () => {
+    if (!(await ensureAdminSession('설정 저장', () => handleSaveGlobalSettings(), true))) return;
     if (saving) return;
     setSaving(true);
     try {
@@ -2227,6 +2355,10 @@ export default function AdminPage() {
         })
       });
       const data = await readJsonResponse(res, '글로벌 설정 저장 실패');
+      if (res.status === 401) {
+        openAdminReauthModal('관리자 로그인이 만료되었습니다. 다시 로그인하면 설정 저장을 이어서 실행합니다.', () => handleSaveGlobalSettings());
+        return;
+      }
       if (data.success) {
         alert('글로벌 설정이 성공적으로 저장되었습니다.');
         loadData();
@@ -2334,6 +2466,8 @@ export default function AdminPage() {
 
   // 그리드 내 필드 변경 처리기
   const handleValueChange = (index: number, field: keyof Product, value: any) => {
+    void ensureAdminSession('상품 수정');
+
     const updated = [...products];
     const previousRow = updated[index];
     const previousKey = getProductKey(previousRow);
@@ -3107,7 +3241,77 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-white">
+    <div className="min-h-screen flex flex-col bg-white" data-admin-page-root>
+      {adminReauthOpen && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/45 px-4" data-admin-reauth-modal>
+          <form
+            onSubmit={handleAdminReauthSubmit}
+            className="w-full max-w-md rounded-lg bg-white p-7 shadow-2xl border border-neutral-200"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[11px] font-bold tracking-[0.22em] uppercase text-neutral-400">Admin Login</p>
+                <h2 className="mt-2 text-lg font-bold tracking-tight text-neutral-900">관리자 확인이 필요합니다</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  pendingAdminActionRef.current = null;
+                  setAdminReauthOpen(false);
+                  setAdminReauthPassword('');
+                  setAdminReauthError('');
+                }}
+                className="h-9 w-9 rounded-full border border-neutral-200 text-neutral-400 hover:text-black"
+                aria-label="닫기"
+              >
+                ×
+              </button>
+            </div>
+
+            <p className="mt-4 text-sm leading-6 text-neutral-600">
+              {adminReauthMessage}
+            </p>
+
+            <label className="mt-6 block">
+              <span className="text-[11px] font-bold tracking-[0.18em] uppercase text-neutral-500">Password</span>
+              <input
+                type="password"
+                value={adminReauthPassword}
+                onChange={(event) => setAdminReauthPassword(event.target.value)}
+                autoFocus
+                className="mt-2 w-full border border-neutral-300 px-4 py-3 text-sm outline-none focus:border-black"
+                placeholder="관리자 비밀번호"
+              />
+            </label>
+
+            {adminReauthError && (
+              <p className="mt-3 text-sm font-semibold text-red-500">{adminReauthError}</p>
+            )}
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  pendingAdminActionRef.current = null;
+                  setAdminReauthOpen(false);
+                  setAdminReauthPassword('');
+                  setAdminReauthError('');
+                }}
+                className="border border-neutral-200 px-5 py-2.5 text-xs font-bold tracking-widest text-neutral-500 hover:text-black"
+              >
+                취소
+              </button>
+              <button
+                type="submit"
+                disabled={adminReauthSubmitting}
+                className="bg-black px-6 py-2.5 text-xs font-bold tracking-widest text-white disabled:opacity-50"
+              >
+                {adminReauthSubmitting ? '확인 중...' : '로그인 후 계속'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
       
       {/* 상단 액션 바 */}
       <header className="border-b border-neutral-200 py-4 px-6 md:px-12 flex justify-between items-center text-xs tracking-wider font-light text-neutral-500 select-none">
