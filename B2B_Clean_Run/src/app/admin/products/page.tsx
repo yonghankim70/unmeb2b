@@ -1189,17 +1189,15 @@ export default function AdminPage() {
       if (!target) return;
       if (!target.closest('[data-admin-page-root]')) return;
       if (target.closest('[data-admin-reauth-modal]')) return;
-      if (!target.closest('input, textarea, select, button, [role="button"], [contenteditable="true"]')) return;
+      if (!target.closest('input, textarea, select, [contenteditable="true"]')) return;
 
       void ensureAdminSession('관리자 작업');
     };
 
     document.addEventListener('focusin', handleAdminInteraction, true);
-    document.addEventListener('pointerdown', handleAdminInteraction, true);
 
     return () => {
       document.removeEventListener('focusin', handleAdminInteraction, true);
-      document.removeEventListener('pointerdown', handleAdminInteraction, true);
     };
   }, [ensureAdminSession, isAuthenticated]);
 
