@@ -14,7 +14,7 @@ import {
 import { safeFileName } from '@/lib/pathSafety';
 
 const MAIN_WIDTHS = [480, 960] as const;
-const DETAIL_SOURCE_WIDTHS = [2200, 1600, 1200] as const;
+const DETAIL_SOURCE_WIDTHS = [1200, 1600, 2200] as const;
 
 function isMainImageFileName(fileName: string): boolean {
   const lower = fileName.toLowerCase();
@@ -55,6 +55,16 @@ function readProductImageNames(product: Product): string[] {
 }
 
 function mergeProductAndStoredImages(productImages: string[], storedImages: string[]): string[] {
+  const productUnique: string[] = [];
+  for (const name of productImages) {
+    const cleanName = normalizeImageName(name);
+    if (cleanName && !productUnique.includes(cleanName)) productUnique.push(cleanName);
+  }
+
+  if (productUnique.length > 0) {
+    return productUnique;
+  }
+
   const storedUnique: string[] = [];
   for (const name of storedImages) {
     const cleanName = normalizeImageName(name);
@@ -62,17 +72,10 @@ function mergeProductAndStoredImages(productImages: string[], storedImages: stri
   }
 
   if (storedUnique.length === 0) {
-    return productImages;
+    return [];
   }
 
-  const storedSet = new Set(storedUnique);
-  const ordered = productImages
-    .map(normalizeImageName)
-    .filter((name) => name && storedSet.has(name));
-  for (const storedName of storedUnique) {
-    if (!ordered.includes(storedName)) ordered.push(storedName);
-  }
-  return ordered;
+  return storedUnique;
 }
 
 async function listCloudDetailImageNames(week: string, code: string): Promise<string[]> {
@@ -238,7 +241,12 @@ export async function POST(request: NextRequest) {
       const existingSet = new Set(images);
       const nextImages = orderedImages.map(normalizeImageName).filter((name: string) => existingSet.has(name));
       const missing = images.filter((name: string) => !nextImages.includes(name));
+      const previousMainImage = images[0] || '';
       product.상세이미지목록 = [...nextImages, ...missing];
+      const nextMainImage = product.상세이미지목록[0] || '';
+      if (nextMainImage && nextMainImage !== previousMainImage) {
+        await updateMainImageFromDetail(week, code, nextMainImage);
+      }
       markProductImagesChanged(product);
       await writeCloudProduct(product);
       return NextResponse.json({ success: true, images: product.상세이미지목록, imageVersion: product.이미지버전 });
