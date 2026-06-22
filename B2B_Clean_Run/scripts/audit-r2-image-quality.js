@@ -57,10 +57,14 @@ function getCacheSegment(value) {
   return encodeURIComponent(value);
 }
 
+function encodeAwsUriComponent(value) {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
 function getPublicUrlForKey(key) {
   const baseUrl = getR2BaseUrl();
   if (!baseUrl) throw new Error('R2 public base URL is required');
-  return `${baseUrl}/${key.split('/').map(encodeURIComponent).join('/')}`;
+  return `${baseUrl}/${key.split('/').map(encodeAwsUriComponent).join('/')}`;
 }
 
 function getMainImageKey(week, code, width = MAIN_AUDIT_WIDTH) {

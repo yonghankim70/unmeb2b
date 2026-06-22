@@ -2290,24 +2290,37 @@ export default function AdminPage() {
       return;
     }
 
-    const existingCodes = new Set(products.map((product) => getProductKey(product).toLowerCase()).filter(Boolean));
-    const newCandidates = candidates.filter((candidate) => !existingCodes.has(candidate.code.toLowerCase()));
-    const skippedCount = candidates.length - newCandidates.length;
+    const existingProducts = new Map(
+      products
+        .map((product) => [getProductKey(product).toLowerCase(), product] as const)
+        .filter(([key]) => Boolean(key))
+    );
+    const newCandidates = candidates.filter((candidate) => !existingProducts.has(candidate.code.toLowerCase()));
+    const retryImageCandidates = candidates.filter((candidate) => {
+      const existingProduct = existingProducts.get(candidate.code.toLowerCase());
+      return Boolean(existingProduct?.신규등록대기 && candidate.imageFiles.length > 0);
+    });
+    const workItems = [
+      ...newCandidates.map((candidate) => ({ candidate, mode: 'new' as const })),
+      ...retryImageCandidates.map((candidate) => ({ candidate, mode: 'retry' as const })),
+    ];
+    const skippedCount = candidates.length - newCandidates.length - retryImageCandidates.length;
 
-    if (newCandidates.length === 0) {
-      alert(`신규 상품이 없습니다.\n선택 상품: ${candidates.length}개\n이미 등록됨: ${skippedCount}개`);
+    if (workItems.length === 0) {
+      alert(`신규 상품 또는 재업로드 대상이 없습니다.\n선택 상품: ${candidates.length}개\n이미 등록됨: ${candidates.length}개`);
       return;
     }
 
-    const imageCount = newCandidates.reduce((sum, candidate) => sum + candidate.imageFiles.length, 0);
-    const sample = newCandidates.slice(0, 8).map((candidate) => `${candidate.code} (${candidate.imageFiles.length}장)`).join(', ');
+    const imageCount = workItems.reduce((sum, item) => sum + item.candidate.imageFiles.length, 0);
+    const sample = workItems.slice(0, 8).map(({ candidate, mode }) => `${candidate.code} (${candidate.imageFiles.length}장${mode === 'retry' ? ', 재시도' : ''})`).join(', ');
     if (!confirm([
       '신규 폴더 동기화',
       '',
       `신규 등록 대기 생성: ${newCandidates.length}개`,
+      `기존 신규 대기 이미지 재업로드: ${retryImageCandidates.length}개`,
       `이미지 업로드 예정: ${imageCount}장`,
       skippedCount > 0 ? `이미 등록되어 건너뜀: ${skippedCount}개` : '',
-      sample ? `\n예시: ${sample}${newCandidates.length > 8 ? ` 외 ${newCandidates.length - 8}개` : ''}` : '',
+      sample ? `\n예시: ${sample}${workItems.length > 8 ? ` 외 ${workItems.length - 8}개` : ''}` : '',
       '',
       '선택한 상품을 신규 등록 대기 탭으로 가져올까요?'
     ].filter(Boolean).join('\n'))) {
@@ -2324,24 +2337,27 @@ export default function AdminPage() {
     const failedMessages: string[] = [];
 
     try {
-      for (const [index, candidate] of newCandidates.entries()) {
-        setFolderSyncStatus(`${index + 1}/${newCandidates.length} ${candidate.code} 신규 등록 대기 생성 중...`);
-        const product = await createPendingProductFromFolder(candidate, syncTime);
-        const addRes = await fetch('/api/admin/add-product', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(product),
-        });
-        const addData = await readJsonResponse(addRes, `${candidate.code} 신규 등록 실패`);
-        if (!addData?.success) {
-          failedCount += 1;
-          failedMessages.push(`${candidate.code}: ${addData?.message || `서버 오류 (${addRes.status})`}`);
-          continue;
+      for (const [index, item] of workItems.entries()) {
+        const { candidate, mode } = item;
+        if (mode === 'new') {
+          setFolderSyncStatus(`${index + 1}/${workItems.length} ${candidate.code} 신규 등록 대기 생성 중...`);
+          const product = await createPendingProductFromFolder(candidate, syncTime);
+          const addRes = await fetch('/api/admin/add-product', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(product),
+          });
+          const addData = await readJsonResponse(addRes, `${candidate.code} 신규 등록 실패`);
+          if (!addData?.success) {
+            failedCount += 1;
+            failedMessages.push(`${candidate.code}: ${addData?.message || `서버 오류 (${addRes.status})`}`);
+            continue;
+          }
+          addedCount += 1;
         }
 
-        addedCount += 1;
         if (candidate.imageFiles.length > 0) {
-          setFolderSyncStatus(`${index + 1}/${newCandidates.length} ${candidate.code} 이미지 업로드 중 (${candidate.imageFiles.length}장)...`);
+          setFolderSyncStatus(`${index + 1}/${workItems.length} ${candidate.code} 이미지 ${mode === 'retry' ? '재업로드' : '업로드'} 중 (${candidate.imageFiles.length}장)...`);
           const uploadResult = await handleImageUpload(candidate.week, candidate.code, candidate.imageFiles, [], {
             silent: true,
             forceFirstImageAsMain: true,
@@ -2361,7 +2377,7 @@ export default function AdminPage() {
       setEndDateFilter('');
       setSortField('');
       setSortDirection('asc');
-      setSelectedSyncTime(syncTime);
+      setSelectedSyncTime(addedCount > 0 ? syncTime : '');
       setActiveTab('new');
       setSelectedKeys([]);
       await loadData();
@@ -2370,7 +2386,7 @@ export default function AdminPage() {
       const failText = failedMessages.length > 0
         ? `\n\n확인 필요 ${failedMessages.length}건:\n${failedMessages.slice(0, 8).join('\n')}${failedMessages.length > 8 ? `\n외 ${failedMessages.length - 8}건` : ''}`
         : '';
-      alert(`신규 폴더 동기화 완료\n신규 등록 대기: ${addedCount}개\n이미지 업로드: ${uploadedCount}장\n건너뜀: ${skippedCount}개\n실패/확인 필요: ${failedCount}건${failText}`);
+      alert(`신규 폴더 동기화 완료\n신규 등록 대기: ${addedCount}개\n기존 대기 재업로드: ${retryImageCandidates.length}개\n이미지 업로드: ${uploadedCount}장\n건너뜀: ${skippedCount}개\n실패/확인 필요: ${failedCount}건${failText}`);
     } catch (error: any) {
       console.error(error);
       alert(`신규 폴더 동기화 실패: ${error.message}`);
@@ -2688,12 +2704,6 @@ export default function AdminPage() {
       // 1. 카테고리
       if (bulkFields.applyCategory) {
         row.카테고리 = bulkFields.categoryValue;
-        // 카테고리가 변경되면 기본 환율/물류비 로드
-        const matchedCat = categories.find(c => c.카테고리 === bulkFields.categoryValue);
-        if (matchedCat) {
-          row.환율 = matchedCat.환율 || 0;
-          row.물류비 = matchedCat.물류비 || 0;
-        }
       }
 
       // 2. 노출여부
@@ -2704,17 +2714,6 @@ export default function AdminPage() {
       // 2-2. 노출제외
       if (bulkFields.applyExclude) {
         row.노출제외 = bulkFields.excludeValue;
-      }
-
-      // 노출여부/노출제외 일괄 변경 시 노출날짜 자동 입력
-      if (
-        (row.노출여부 && String(row.노출여부).toLowerCase().trim() === 'y') ||
-        (row.노출제외 && String(row.노출제외 || '').trim() !== '')
-      ) {
-        if (!row.업로드일자 || row.업로드일자.trim() === '') {
-          const now = new Date();
-          row.업로드일자 = `${now.getMonth() + 1}/${now.getDate()}`;
-        }
       }
 
       // 3. 주차
@@ -2776,8 +2775,6 @@ export default function AdminPage() {
       if (bulkFields.applyGradeExclude) {
         row.등급할인제외 = bulkFields.gradeExcludeValue;
       }
-
-      applyPriceCalculation(row);
 
       return row;
     });

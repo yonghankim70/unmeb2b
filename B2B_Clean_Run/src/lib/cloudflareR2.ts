@@ -19,6 +19,10 @@ function sha256(value: string | Buffer, encoding: 'hex' | 'base64' | 'base64url'
   return createHash('sha256').update(value).digest(encoding);
 }
 
+function encodeAwsUriComponent(value: string): string {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
 function getSigningKey(secret: string, dateStamp: string, region: string, service: string): Buffer {
   const kDate = hmac(`AWS4${secret}`, dateStamp) as Buffer;
   const kRegion = hmac(kDate, region) as Buffer;
@@ -43,7 +47,7 @@ export function getR2PublicUrlForKey(key: string): string {
   if (!base) {
     throw new Error('R2 공개 URL이 설정되지 않았습니다.');
   }
-  return `${base}/${key.split('/').map(encodeURIComponent).join('/')}`;
+  return `${base}/${key.split('/').map(encodeAwsUriComponent).join('/')}`;
 }
 
 async function signedR2Request(target: string, method: 'GET' | 'PUT' | 'DELETE', body?: Uint8Array): Promise<Response> {
@@ -113,7 +117,7 @@ export async function listR2Objects(prefix: string): Promise<string[]> {
   requiredR2Env();
 
   const bucket = process.env.CF_R2_BUCKET as string;
-  const query = `list-type=2&prefix=${encodeURIComponent(prefix)}`;
+  const query = `list-type=2&prefix=${encodeAwsUriComponent(prefix)}`;
   const pathname = `/${bucket}?${query}`;
   const response = await signedR2Request(pathname, 'GET');
 
@@ -136,7 +140,7 @@ export async function putR2Object(key: string, body: Buffer, contentType: string
   const bucket = process.env.CF_R2_BUCKET as string;
   const accessKey = process.env.CF_R2_ACCESS_KEY_ID as string;
   const secretKey = process.env.CF_R2_SECRET_ACCESS_KEY as string;
-  const encodedKey = key.split('/').map(encodeURIComponent).join('/');
+  const encodedKey = key.split('/').map(encodeAwsUriComponent).join('/');
   const pathname = `/${bucket}/${encodedKey}`;
   const payloadHash = sha256(body);
 
@@ -192,7 +196,7 @@ export async function deleteR2Object(key: string): Promise<void> {
   const bucket = process.env.CF_R2_BUCKET as string;
   const accessKey = process.env.CF_R2_ACCESS_KEY_ID as string;
   const secretKey = process.env.CF_R2_SECRET_ACCESS_KEY as string;
-  const encodedKey = key.split('/').map(encodeURIComponent).join('/');
+  const encodedKey = key.split('/').map(encodeAwsUriComponent).join('/');
   const pathname = `/${bucket}/${encodedKey}`;
   const payloadHash = sha256('');
 

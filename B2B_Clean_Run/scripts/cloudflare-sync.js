@@ -94,6 +94,10 @@ function sha256(value, encoding = 'hex') {
   return crypto.createHash('sha256').update(value).digest(encoding);
 }
 
+function encodeAwsUriComponent(value) {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
 function getSigningKey(secret, dateStamp, region, service) {
   const kDate = hmac(`AWS4${secret}`, dateStamp);
   const kRegion = hmac(kDate, region);
@@ -110,7 +114,7 @@ async function putR2Object(key, body, contentType) {
   const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
   const dateStamp = amzDate.slice(0, 8);
   const host = `${ENV.CF_ACCOUNT_ID}.r2.cloudflarestorage.com`;
-  const encodedKey = key.split('/').map(encodeURIComponent).join('/');
+  const encodedKey = key.split('/').map(encodeAwsUriComponent).join('/');
   const pathname = `/${ENV.CF_R2_BUCKET}/${encodedKey}`;
   const payloadHash = sha256(body);
 

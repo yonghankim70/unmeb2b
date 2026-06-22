@@ -48,6 +48,10 @@ function requireEnv(key) {
   return value;
 }
 
+function encodeAwsUriComponent(value) {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
 async function putR2Object(filePath, key) {
   const accountId = requireEnv('CF_ACCOUNT_ID');
   const bucket = requireEnv('CF_R2_BUCKET');
@@ -58,7 +62,7 @@ async function putR2Object(filePath, key) {
   const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
   const dateStamp = amzDate.slice(0, 8);
   const host = `${accountId}.r2.cloudflarestorage.com`;
-  const encodedKey = key.split('/').map(encodeURIComponent).join('/');
+  const encodedKey = key.split('/').map(encodeAwsUriComponent).join('/');
   const pathname = `/${bucket}/${encodedKey}`;
   const payloadHash = sha256(body);
 
