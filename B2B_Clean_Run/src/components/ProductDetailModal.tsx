@@ -13,7 +13,7 @@ import { X, Check, Plus, Loader2 } from 'lucide-react';
 
 const PRODUCT_DETAILS_CACHE_TTL_MS = 5 * 60 * 1000;
 const INSTANT_MAIN_IMAGE = 'folder.jpg';
-const DETAIL_PRELOAD_COUNT = 8;
+const DETAIL_PRELOAD_COUNT = 3;
 const OPTIMIZED_DETAIL_IMAGE_COUNT = 12;
 
 interface ProductDetailModalProps {

@@ -7,8 +7,10 @@ const CWD = process.cwd();
 const VALID_IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
 const MAIN_WIDTHS = [480, 960];
 const DETAIL_WIDTHS = [1200, 2200];
-const MAIN_QUALITY = Number(process.env.B2B_UPSCALE_MAIN_QUALITY || '92');
-const DETAIL_QUALITY = Number(process.env.B2B_UPSCALE_DETAIL_QUALITY || '94');
+const MAIN_480_QUALITY = Number(process.env.B2B_UPSCALE_MAIN_480_QUALITY || '92');
+const MAIN_960_QUALITY = Number(process.env.B2B_UPSCALE_MAIN_960_QUALITY || process.env.B2B_UPSCALE_MAIN_QUALITY || '94');
+const DETAIL_1200_QUALITY = Number(process.env.B2B_UPSCALE_DETAIL_1200_QUALITY || '96');
+const DETAIL_2200_QUALITY = Number(process.env.B2B_UPSCALE_DETAIL_2200_QUALITY || process.env.B2B_UPSCALE_DETAIL_QUALITY || '98');
 const MAX_UPSCALE_FACTOR = Number(process.env.B2B_UPSCALE_MAX_FACTOR || '2');
 const CONCURRENCY = Number(process.env.B2B_UPSCALE_CONCURRENCY || '3');
 const MODE = process.argv.includes('--apply') ? 'apply' : 'dry-run';
@@ -71,6 +73,14 @@ function getMainImageKey(week, code, width) {
 
 function getDetailImageKey(week, code, fileName, width) {
   return `image-cache/detail/${encodeURIComponent(week)}/${getR2CacheSegment(code)}/${getR2CacheSegment(fileName)}-${width}.webp`;
+}
+
+function getMainQuality(width) {
+  return width >= 960 ? MAIN_960_QUALITY : MAIN_480_QUALITY;
+}
+
+function getDetailQuality(width) {
+  return width >= 2200 ? DETAIL_2200_QUALITY : DETAIL_1200_QUALITY;
 }
 
 function imagePriority(fileName) {
@@ -309,18 +319,21 @@ async function main() {
   console.log(`[Upscale] mode=${MODE}`);
   console.log(`[Upscale] onlyNeeded=${ONLY_NEEDED ? 'yes' : 'no'}`);
   console.log(`[Upscale] dataDir=${dataDir}`);
-  console.log(`[Upscale] detailWidths=${DETAIL_WIDTHS.join(',')}, detailQuality=${DETAIL_QUALITY}, maxFactor=${MAX_UPSCALE_FACTOR}`);
+  console.log(`[Upscale] detailWidths=${DETAIL_WIDTHS.join(',')}, detailQuality=${DETAIL_1200_QUALITY}/${DETAIL_2200_QUALITY}, maxFactor=${MAX_UPSCALE_FACTOR}`);
   const products = await queryD1('SELECT code, week, name, payload FROM products ORDER BY week DESC, code ASC');
   console.log(`[Upscale] products=${products.length}`);
 
   const tasks = [];
   const skipped = [];
+  const productPayloads = new Map();
+  const touchedProducts = new Map();
 
   for (const row of products) {
     const payload = row.payload ? safeJsonParse(row.payload, {}) : {};
     const code = String(payload?.임시코드 || row.code || payload?.상품명 || '').trim();
     const week = String(payload?.주차 || row.week || '').trim();
     if (!code || !week) continue;
+    productPayloads.set(code, payload);
 
     const productDir = findProductDir(dataDir, week, code);
     const localImages = readLocalImages(productDir);
@@ -348,7 +361,7 @@ async function main() {
               sourceWidth: metadata.width,
               sourceHeight: metadata.height,
               width,
-              quality: width === 960 ? MAIN_QUALITY : Math.min(MAIN_QUALITY, 90),
+              quality: getMainQuality(width),
               key: getMainImageKey(week, code, width),
             });
           }
@@ -380,7 +393,7 @@ async function main() {
           sourceWidth: metadata.width,
           sourceHeight: metadata.height,
           width,
-          quality: width >= 2200 ? DETAIL_QUALITY : Math.min(DETAIL_QUALITY, 92),
+          quality: getDetailQuality(width),
           key: getDetailImageKey(week, code, fileName, width),
         });
       }
@@ -411,8 +424,14 @@ async function main() {
       productCount: products.length,
       mainWidths: MAIN_WIDTHS,
       detailWidths: DETAIL_WIDTHS,
-      mainQuality: MAIN_QUALITY,
-      detailQuality: DETAIL_QUALITY,
+      mainQuality: {
+        480: MAIN_480_QUALITY,
+        960: MAIN_960_QUALITY,
+      },
+      detailQuality: {
+        1200: DETAIL_1200_QUALITY,
+        2200: DETAIL_2200_QUALITY,
+      },
       maxUpscaleFactor: MAX_UPSCALE_FACTOR,
       plannedVariants: tasks.length,
       skipped,
@@ -461,6 +480,7 @@ async function main() {
       if (MODE === 'apply') {
         await putR2Object(task.key, result.buffer, 'image/webp');
         stats.uploaded += 1;
+        touchedProducts.set(task.code, { code: task.code, week: task.week });
         appendCompletedKey({
           key: task.key,
           code: task.code,
@@ -488,6 +508,21 @@ async function main() {
     }
   });
 
+  let versionUpdated = 0;
+  if (MODE === 'apply' && touchedProducts.size > 0) {
+    const imageVersion = new Date().toISOString();
+    for (const { code } of touchedProducts.values()) {
+      const payload = productPayloads.get(code);
+      if (!payload || typeof payload !== 'object') continue;
+      payload.이미지버전 = imageVersion;
+      await queryD1(
+        'UPDATE products SET payload = ?, updated_at = ? WHERE code = ?',
+        [JSON.stringify(payload), imageVersion, code],
+      );
+      versionUpdated += 1;
+    }
+  }
+
   const report = {
     completedAt: new Date().toISOString(),
     mode: MODE,
@@ -495,9 +530,16 @@ async function main() {
     productCount: products.length,
     mainWidths: MAIN_WIDTHS,
     detailWidths: DETAIL_WIDTHS,
-    mainQuality: MAIN_QUALITY,
-    detailQuality: DETAIL_QUALITY,
+    mainQuality: {
+      480: MAIN_480_QUALITY,
+      960: MAIN_960_QUALITY,
+    },
+    detailQuality: {
+      1200: DETAIL_1200_QUALITY,
+      2200: DETAIL_2200_QUALITY,
+    },
     maxUpscaleFactor: MAX_UPSCALE_FACTOR,
+    versionUpdated,
     stats: {
       ...stats,
       outputMb: Math.round(stats.outputBytes / 1024 / 1024),

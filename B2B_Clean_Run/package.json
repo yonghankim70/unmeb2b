@@ -10,6 +10,7 @@
     "optimize-images": "node scripts/warm-image-cache.js",
     "audit-r2-images": "node scripts/audit-r2-image-quality.js",
     "upscale-r2-images": "node scripts/upscale-r2-images.js --needed --apply --fresh",
+    "upscale-r2-images:all": "node scripts/upscale-r2-images.js --apply --fresh",
     "cloudflare:dry-run": "node scripts/cloudflare-sync.js",
     "cloudflare:sync-images": "node scripts/cloudflare-sync.js --apply --images",
     "cloudflare:sync-d1": "node scripts/cloudflare-sync.js --apply --d1",

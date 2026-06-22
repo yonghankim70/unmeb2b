@@ -105,6 +105,14 @@ const ALL_COLUMNS: ColumnMeta[] = [
 
 const CLOUD_DETAIL_WIDTHS = [1200, 2200] as const;
 const CLOUD_MAIN_WIDTHS = [480, 960] as const;
+const CLOUD_DETAIL_QUALITY: Record<(typeof CLOUD_DETAIL_WIDTHS)[number], number> = {
+  1200: 0.96,
+  2200: 0.98,
+};
+const CLOUD_MAIN_QUALITY: Record<(typeof CLOUD_MAIN_WIDTHS)[number], number> = {
+  480: 0.92,
+  960: 0.94,
+};
 const CLOUD_IMAGE_MAX_UPSCALE_FACTOR = 2;
 const MAX_CLOUD_UPLOAD_IMAGES = 10;
 const SORT_MANAGER_OWNER_CART = 'OWNER-CART';
@@ -292,7 +300,7 @@ async function appendCloudWebpUploadPayload(
 
     for (const width of CLOUD_DETAIL_WIDTHS) {
       const field = `variant_${index}_detail_${width}`;
-      const blob = await imageFileToWebp(file, width, width === 2200 ? 0.94 : 0.92);
+      const blob = await imageFileToWebp(file, width, CLOUD_DETAIL_QUALITY[width]);
       formData.append(field, blob, `${file.name}-${width}.webp`);
       manifest.push({ field, fileName: file.name, kind: 'detail', width });
     }
@@ -300,7 +308,7 @@ async function appendCloudWebpUploadPayload(
     if (shouldUpdateMain && !updatedMain) {
       for (const width of CLOUD_MAIN_WIDTHS) {
         const field = `variant_${index}_main_${width}`;
-        const blob = await imageFileToWebp(file, width, width === 960 ? 0.92 : 0.9);
+        const blob = await imageFileToWebp(file, width, CLOUD_MAIN_QUALITY[width]);
         formData.append(field, blob, `${file.name}-main-${width}.webp`);
         manifest.push({ field, fileName: file.name, kind: 'main', width });
       }
