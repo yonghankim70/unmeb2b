@@ -345,6 +345,11 @@ function isFolderSyncImageFile(fileName: string): boolean {
   return FOLDER_SYNC_IMAGE_EXTENSIONS.has(fileExtension(fileName));
 }
 
+function parseFolderSyncWeekSegment(segment: string): string {
+  const match = String(segment || '').trim().match(/^(\d{2}[a-zA-Z]+)(?:[_\-\s]*(\d+))?$/);
+  return match ? match[1].toUpperCase() : '';
+}
+
 function cleanBuyerInfoText(fileName: string, text: string): string {
   const fromText = text.trim().split(/\r?\n/).map((line) => line.trim()).filter(Boolean).join(' / ');
   if (fromText) return fromText;
@@ -2193,12 +2198,12 @@ export default function AdminPage() {
       if (segments.length < 2) continue;
 
       const fileName = segments[segments.length - 1] || entry.file.name;
-      const weekIndex = segments.findIndex((segment) => /^\d{2}[a-zA-Z]+$/.test(segment));
+      const weekIndex = segments.findIndex((segment) => Boolean(parseFolderSyncWeekSegment(segment)));
       const productIndex = weekIndex >= 0 ? weekIndex + 1 : segments.length - 2;
       const code = String(segments[productIndex] || '').trim().replace(/_temp_refresh$/i, '');
       if (!code || code.startsWith('.')) continue;
 
-      const week = weekIndex >= 0 ? segments[weekIndex] : fallbackWeek;
+      const week = weekIndex >= 0 ? parseFolderSyncWeekSegment(segments[weekIndex]) : fallbackWeek;
       if (!week) continue;
 
       const key = `${week}__${code}`;
