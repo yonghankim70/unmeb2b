@@ -13,8 +13,28 @@ import {
 } from '@/lib/cloudflareR2';
 import { safeFileName } from '@/lib/pathSafety';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 const MAIN_WIDTHS = [480, 960] as const;
 const DETAIL_SOURCE_WIDTHS = [1200, 1600, 2200] as const;
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+  Pragma: 'no-cache',
+  Expires: '0',
+};
+
+function noStoreJson(body: unknown, init?: ResponseInit) {
+  const headers = new Headers(init?.headers);
+  Object.entries(NO_STORE_HEADERS).forEach(([key, value]) => {
+    headers.set(key, value);
+  });
+
+  return NextResponse.json(body, {
+    ...init,
+    headers,
+  });
+}
 
 function isMainImageFileName(fileName: string): boolean {
   const lower = fileName.toLowerCase();
@@ -187,9 +207,10 @@ export async function GET(request: NextRequest) {
 
     const productImages = readProductImageNames(product);
     const storedImages = await listCloudDetailImageNames(week, code);
-    return NextResponse.json({
+    return noStoreJson({
       success: true,
       images: mergeProductAndStoredImages(productImages, storedImages),
+      imageVersion: product.이미지버전 || '',
     });
   } catch (error: any) {
     console.error('[Product Images API] GET Error:', error);
@@ -249,7 +270,7 @@ export async function POST(request: NextRequest) {
       }
       markProductImagesChanged(product);
       await writeCloudProduct(product);
-      return NextResponse.json({ success: true, images: product.상세이미지목록, imageVersion: product.이미지버전 });
+      return noStoreJson({ success: true, images: product.상세이미지목록, imageVersion: product.이미지버전 });
     }
 
     if (!fileName) {
@@ -269,7 +290,7 @@ export async function POST(request: NextRequest) {
       product.상세이미지목록 = nextImages;
       markProductImagesChanged(product);
       await writeCloudProduct(product);
-      return NextResponse.json({ success: true, images: product.상세이미지목록, mainImage: fileName, imageVersion: product.이미지버전 });
+      return noStoreJson({ success: true, images: product.상세이미지목록, mainImage: fileName, imageVersion: product.이미지버전 });
     }
 
     if (action === 'delete') {
@@ -289,7 +310,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      return NextResponse.json({ success: true, images: product.상세이미지목록, deleted: fileName, warning, imageVersion: product.이미지버전 });
+      return noStoreJson({ success: true, images: product.상세이미지목록, deleted: fileName, warning, imageVersion: product.이미지버전 });
     }
 
     return NextResponse.json({ success: false, message: '지원하지 않는 action입니다.' }, { status: 400 });

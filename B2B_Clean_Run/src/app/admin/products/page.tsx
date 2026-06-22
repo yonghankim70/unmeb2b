@@ -745,17 +745,19 @@ export default function AdminPage() {
         );
       case '이미지': {
         const imgCode = product.임시코드 || product.상품명;
-        const imageUrl = `/api/image?week=${encodeURIComponent(product.주차)}&code=${encodeURIComponent(imgCode)}${cacheBuster ? `&t=${cacheBuster}` : ''}`;
+        const imageRevision = String(product.이미지버전 || '');
+        const imageUrl = withCacheBuster(getCachedMainImageUrl(product));
         return (
           <div className="flex flex-col items-center gap-1.5 py-1.5 mx-auto">
             <img 
+              key={`${imgCode}-${imageRevision}-${cacheBuster}`}
               src={imageUrl} 
               alt="thumbnail"
               onClick={() => setEnlargedImage(imageUrl)}
               className="w-10 h-10 object-cover border border-neutral-200 cursor-zoom-in hover:brightness-95 transition-all"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = imageUrl + '&debug=false';
-              }}
+              onError={(event) => applyImageFallbacks(event, [
+                withCacheBuster(getApiImageUrl(product)),
+              ])}
             />
             {uploadingState[`${product.주차}-${imgCode}`] ? (
               <span className="text-[8px] text-neutral-450 scale-90">업로드 중...</span>
@@ -1836,7 +1838,7 @@ export default function AdminPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/admin/products');
+      const res = await fetch('/api/admin/products', { cache: 'no-store' });
       const data = await readJsonResponse(res, '상품 데이터 불러오기 실패');
       if (!res.ok || !data.success) {
         const message = data?.message || '상품 데이터를 불러오지 못했습니다.';
@@ -3099,7 +3101,7 @@ export default function AdminPage() {
       });
       const data = await readJsonResponse(res, '이미지 목록 새로고침 실패');
       if (data?.success && Array.isArray(data.images)) {
-        applyProductImagesLocally(code, data.images);
+        applyProductImagesLocally(code, data.images, data.imageVersion);
       }
     } catch (error) {
       console.warn('이미지 목록 새로고침 실패:', error);

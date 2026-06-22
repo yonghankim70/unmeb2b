@@ -14,6 +14,25 @@ import {
 } from '@/lib/cloudData';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+  Pragma: 'no-cache',
+  Expires: '0',
+};
+
+function noStoreJson(body: unknown, init?: ResponseInit) {
+  const headers = new Headers(init?.headers);
+  Object.entries(NO_STORE_HEADERS).forEach(([key, value]) => {
+    headers.set(key, value);
+  });
+
+  return NextResponse.json(body, {
+    ...init,
+    headers,
+  });
+}
 
 function productKey(product: Product): string {
   return String(product.임시코드 || product.상품명 || '').trim();
@@ -64,12 +83,12 @@ function findDuplicateCategoryNames(categories: any[]): string[] {
 export async function GET(request: NextRequest) {
   try {
     if (!(await isAdminAuthenticated())) {
-      return NextResponse.json({ success: false, message: '관리자 로그인이 필요합니다.' }, { status: 401 });
+      return noStoreJson({ success: false, message: '관리자 로그인이 필요합니다.' }, { status: 401 });
     }
 
     const data = isCloudDbEnabled() ? await readCloudMasterData() : readExcelData();
     const globalSettings = isCloudDbEnabled() ? await readCloudGlobalSettings() : readGlobalSettings();
-    return NextResponse.json({
+    return noStoreJson({
       success: true,
       products: data.products,
       categories: data.categories,
@@ -80,21 +99,21 @@ export async function GET(request: NextRequest) {
     });
   } catch (error: any) {
     console.error('[Admin API GET] 에러 발생:', error);
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return noStoreJson({ success: false, message: error.message }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
     if (!(await isAdminAuthenticated())) {
-      return NextResponse.json({ success: false, message: '관리자 로그인이 필요합니다.' }, { status: 401 });
+      return noStoreJson({ success: false, message: '관리자 로그인이 필요합니다.' }, { status: 401 });
     }
 
     const { products, globalSettings, categories, deletedProductCodes, replaceAllProducts, confirmLargeDelete } = await request.json();
     const normalizedDeletedProductCodes = normalizeCodes(deletedProductCodes);
     
     if ((!products || !Array.isArray(products)) && !globalSettings && !categories && normalizedDeletedProductCodes.length === 0) {
-      return NextResponse.json({ success: false, message: '올바르지 않은 데이터 형식입니다.' }, { status: 400 });
+      return noStoreJson({ success: false, message: '올바르지 않은 데이터 형식입니다.' }, { status: 400 });
     }
 
     const isCloudMode = isCloudDbEnabled();
@@ -106,7 +125,7 @@ export async function POST(request: NextRequest) {
     if (products && Array.isArray(products)) {
       const duplicateCodes = findDuplicateProductCodes(products);
       if (duplicateCodes.length > 0) {
-        return NextResponse.json({
+        return noStoreJson({
           success: false,
           message: `중복 상품 코드가 있어 저장을 중단했습니다: ${duplicateCodes.slice(0, 8).join(', ')}`,
         }, { status: 400 });
@@ -116,7 +135,7 @@ export async function POST(request: NextRequest) {
         if (replaceAllProducts !== false) {
           const countRows = await queryD1<{ count: number }>('SELECT COUNT(*) as count FROM products');
           const existingCount = Number(countRows[0]?.count || 0);
-          return NextResponse.json(
+          return noStoreJson(
             {
               success: false,
               message: `상품 데이터 전체 덮어쓰기는 금지되어 있습니다. 현재 DB ${existingCount}개 기준으로 수정/추가/삭제된 데이터만 반영하도록 변경되었습니다.`,
@@ -151,7 +170,7 @@ export async function POST(request: NextRequest) {
 
         const success = saveProducts(nextProducts);
         if (!success) {
-          return NextResponse.json({ success: false, message: 'JSON 데이터베이스 파일 저장 중 오류가 발생했습니다.' }, { status: 500 });
+          return noStoreJson({ success: false, message: 'JSON 데이터베이스 파일 저장 중 오류가 발생했습니다.' }, { status: 500 });
         }
         savedProductCount = products.filter((product: Product) => productKey(product)).length;
         if (normalizedDeletedProductCodes.length > 0) {
@@ -166,7 +185,7 @@ export async function POST(request: NextRequest) {
         const existingCount = Number(countRows[0]?.count || 0);
         const largeDeleteLimit = Math.max(30, Math.floor(existingCount * 0.5));
         if (!confirmLargeDelete && existingCount > 0 && normalizedDeletedProductCodes.length > largeDeleteLimit) {
-          return NextResponse.json(
+          return noStoreJson(
             {
               success: false,
               message: `상품 삭제가 차단되었습니다. 현재 ${existingCount}개 중 ${normalizedDeletedProductCodes.length}개 삭제 요청입니다. 대량 삭제는 별도 확인 절차가 필요합니다.`,
@@ -181,7 +200,7 @@ export async function POST(request: NextRequest) {
         const remaining = readExcelData().products.filter((product: Product) => !deletedSet.has(productKey(product)));
         const success = saveProducts(remaining);
         if (!success) {
-          return NextResponse.json({ success: false, message: '상품 삭제 저장 중 오류가 발생했습니다.' }, { status: 500 });
+          return noStoreJson({ success: false, message: '상품 삭제 저장 중 오류가 발생했습니다.' }, { status: 500 });
         }
         deletedProductCount = normalizedDeletedProductCodes.length;
       }
@@ -193,7 +212,7 @@ export async function POST(request: NextRequest) {
       } else {
         const success = writeGlobalSettings(globalSettings);
         if (!success) {
-          return NextResponse.json({ success: false, message: '글로벌 설정 저장 중 오류가 발생했습니다.' }, { status: 500 });
+          return noStoreJson({ success: false, message: '글로벌 설정 저장 중 오류가 발생했습니다.' }, { status: 500 });
         }
       }
       settingsSaved = true;
@@ -202,7 +221,7 @@ export async function POST(request: NextRequest) {
     if (categories && Array.isArray(categories)) {
       const duplicateCategoryNames = findDuplicateCategoryNames(categories);
       if (duplicateCategoryNames.length > 0) {
-        return NextResponse.json({
+        return noStoreJson({
           success: false,
           message: `중복 카테고리명이 있어 저장을 중단했습니다: ${duplicateCategoryNames.join(', ')}`,
         }, { status: 400 });
@@ -216,7 +235,7 @@ export async function POST(request: NextRequest) {
           .filter((name) => name && !incomingNames.has(name.toLowerCase()));
 
         if (currentCategories.length > 0 && incomingNames.size === 0) {
-          return NextResponse.json({
+          return noStoreJson({
             success: false,
             message: `카테고리 저장이 차단되었습니다. 기존 ${currentCategories.length}개 카테고리를 빈 목록으로 만들 수 없습니다.`,
           }, { status: 409 });
@@ -224,7 +243,7 @@ export async function POST(request: NextRequest) {
 
         const largeDeleteLimit = Math.max(2, Math.floor(currentCategories.length * 0.4));
         if (deletedCategoryNames.length > largeDeleteLimit) {
-          return NextResponse.json({
+          return noStoreJson({
             success: false,
             message: `카테고리 삭제가 차단되었습니다. 현재 ${currentCategories.length}개 중 ${deletedCategoryNames.length}개 삭제 요청입니다.`,
           }, { status: 409 });
@@ -237,13 +256,13 @@ export async function POST(request: NextRequest) {
       } else {
         const success = saveCategories(categories);
         if (!success) {
-          return NextResponse.json({ success: false, message: '카테고리 저장 중 오류가 발생했습니다.' }, { status: 500 });
+          return noStoreJson({ success: false, message: '카테고리 저장 중 오류가 발생했습니다.' }, { status: 500 });
         }
       }
       categoriesSaved = true;
     }
 
-    return NextResponse.json({
+    return noStoreJson({
       success: true,
       message: '성공적으로 저장되었습니다.',
       savedProductCount,
@@ -253,6 +272,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: any) {
     console.error('[Admin API POST] 에러 발생:', error);
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return noStoreJson({ success: false, message: error.message }, { status: 500 });
   }
 }

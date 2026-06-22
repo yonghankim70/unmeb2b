@@ -252,11 +252,11 @@ export default function DashboardClient({ products, session, globalSettings }: D
   const visibleProducts = displayedProducts.slice(0, visibleProductCount);
   const visiblePrefetchKey = visibleProducts
     .slice(0, 8)
-    .map((product) => `${product.주차}:${product.임시코드 || product.상품명}`)
+    .map((product) => `${product.주차}:${product.임시코드 || product.상품명}:${product.이미지버전 || ''}`)
     .join('|');
   const mainImagePrefetchKey = displayedProducts
     .slice(0, 800)
-    .map((product) => `${product.주차}:${product.임시코드 || product.상품명}`)
+    .map((product) => `${product.주차}:${product.임시코드 || product.상품명}:${product.이미지버전 || ''}`)
     .join('|');
 
   useEffect(() => {
@@ -364,6 +364,7 @@ export default function DashboardClient({ products, session, globalSettings }: D
 
   const renderProductCard = (product: Product, index = 0) => {
     const code = product.임시코드 || product.상품명;
+    const imageRevision = String(product.이미지버전 || '');
     const resolvedPrice = session ? resolveProductPrice(product, session.discountGrade) : 0;
     const colors = parseColors(product.컬러);
     const shouldPrioritizeImage = index < 4;
@@ -399,6 +400,7 @@ export default function DashboardClient({ products, session, globalSettings }: D
 
           {/* Image URL calling local API stream (uses code = product.임시코드) */}
           <img
+            key={`${code}-${imageRevision}`}
             src={getCachedMainImageUrl(product)}
             srcSet={getOptimizedMainImageSrcSet(product)}
             sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
