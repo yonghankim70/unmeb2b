@@ -5,6 +5,7 @@ interface ImageProductLike {
   상품명: string;
   임시코드?: string;
   이미지버전?: string;
+  상세이미지목록?: unknown;
 }
 
 const preloadedMainImages = new Set<string>();
@@ -41,6 +42,11 @@ function encodePathSegments(pathname: string): string {
 }
 
 export function getCachedMainImageUrl(product: ImageProductLike): string {
+  const primaryDetailImage = getPrimaryDetailImage(product);
+  if (primaryDetailImage) {
+    return getOptimizedDetailImageUrl(product, primaryDetailImage, 1200);
+  }
+
   return getOptimizedMainImageUrl(product);
 }
 
@@ -61,6 +67,13 @@ export function getOptimizedMainImageUrl(product: ImageProductLike, width = DEFA
 }
 
 export function getOptimizedMainImageSrcSet(product: ImageProductLike): string {
+  const primaryDetailImage = getPrimaryDetailImage(product);
+  if (primaryDetailImage) {
+    return DETAIL_IMAGE_WIDTHS
+      .map((width) => `${getOptimizedDetailImageUrl(product, primaryDetailImage, width)} ${width}w`)
+      .join(', ');
+  }
+
   return MAIN_IMAGE_WIDTHS
     .map((width) => `${getOptimizedMainImageUrl(product, width)} ${width}w`)
     .join(', ');
@@ -93,6 +106,14 @@ export function getApiImageUrl(product: ImageProductLike, fileName?: string): st
   const base = `/api/image?week=${encodeURIComponent(product.주차)}&code=${encodeURIComponent(getImageCode(product))}`;
   const imageUrl = fileName ? `${base}&file=${encodeURIComponent(fileName)}` : base;
   return withImageVersion(imageUrl, product);
+}
+
+function getPrimaryDetailImage(product: ImageProductLike): string {
+  if (!Array.isArray(product.상세이미지목록)) return '';
+
+  return product.상세이미지목록
+    .map((imageName) => String(imageName || '').trim())
+    .find(Boolean) || '';
 }
 
 export function useApiImageFallback(
@@ -129,7 +150,7 @@ export function preloadMainProductImages(products: ImageProductLike[], limit = 8
     const batchEnd = Math.min(cursor + 24, targets.length);
     for (; cursor < batchEnd; cursor += 1) {
       const product = targets[cursor];
-      const cachedUrl = getOptimizedMainImageUrl(product);
+      const cachedUrl = getCachedMainImageUrl(product);
       if (preloadedMainImages.has(cachedUrl)) continue;
 
       preloadedMainImages.add(cachedUrl);
